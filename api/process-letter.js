@@ -74,7 +74,7 @@ export default async function handler(req, res) {
       if (looksLikeRefusal(text)) {
         return res.status(422).json({
           error:
-            '内容の一部が安全上の理由で処理できない可能性があります。',
+            '読み込みに失敗しました。',
         });
       }
 
