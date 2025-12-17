@@ -261,13 +261,7 @@
       const [preparing, setPreparing] = useState(false);
       const fileInputRef = useRef(null);
 
-      /**
-       * ✅ APIのURL
-       * - VercelでこのHTMLも配信しているならこのまま '/api/process-letter' でOK
-       * - GitHub Pagesで配信して、APIだけVercelに置くなら以下を設定：
-       *   window.API_BASE = 'https://xxxxx.vercel.app'
-       *   （index.htmlの先頭で <script>window.API_BASE=...</script> と書く等）
-       */
+
       const API_URL = (window.API_BASE ? String(window.API_BASE).replace(/\/$/, '') : '') + '/api/process-letter';
 
       const prepareImage = async (file) => {
