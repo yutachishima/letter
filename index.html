@@ -421,7 +421,7 @@
                     手紙の画像をアップロード
                   </label>
                   <div
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => setShowSourcePicker(true)}
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
                     className={`
@@ -433,14 +433,25 @@
                       }
                     `}
                   >
+                    {/* カメラで撮影（captureあり） */}
                     <input
-                      ref={fileInputRef}
+                      ref={cameraInputRef}
                       type="file"
                       accept="image/*"
                       capture="environment"
                       onChange={handleImageUpload}
                       className="hidden"
-                    />
+                      />
+                    
+                    {/* 写真を選ぶ（captureなし） */}
+                    <input
+                      ref={libraryInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                      />
+
 
                     {imagePreview ? (
                       <div className="space-y-4">
@@ -475,6 +486,50 @@
                     )}
                   </div>
                 </div>
+
+                {/* ✅ ここに入れる：選択モーダル（この位置が正解） */}
+{showSourcePicker && (
+  <div
+    className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4"
+    onClick={() => setShowSourcePicker(false)}
+  >
+    <div
+      className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <p className="japanese-sans text-sm text-stone-600 mb-3">画像の選び方</p>
+
+      <div className="grid gap-2">
+        <button
+          className="w-full rounded-xl bg-amber-500 px-4 py-3 text-white japanese-sans"
+          onClick={() => {
+            setShowSourcePicker(false);
+            cameraInputRef.current?.click();
+          }}
+        >
+          カメラで撮影
+        </button>
+
+        <button
+          className="w-full rounded-xl border border-stone-300 bg-white px-4 py-3 japanese-sans"
+          onClick={() => {
+            setShowSourcePicker(false);
+            libraryInputRef.current?.click();
+          }}
+        >
+          写真を選ぶ
+        </button>
+
+        <button
+          className="w-full rounded-xl px-4 py-3 text-stone-600 japanese-sans"
+          onClick={() => setShowSourcePicker(false)}
+        >
+          キャンセル
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
                 {error && (
                   <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg animate-fade-in-up">
