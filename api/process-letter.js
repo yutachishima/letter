@@ -1,75 +1,98 @@
 export default async function handler(req, res) {
-  // CORSヘッダー
+  // CORS（GitHub Pages から呼ぶ場合も想定）
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
-  if (!OPENAI_API_KEY) {
-    return res.status(500).json({ error: 'APIキーが設定されていません' });
-  }
+  if (!OPENAI_API_KEY) return res.status(500).json({ error: 'APIキーが設定されていません（OPENAI_API_KEY）' });
 
   try {
-    const { action, imageBase64, extractedText } = req.body;
+    const { action } = req.body || {};
 
     if (action === 'extract') {
-      // 画像からテキストを抽出
+      const imageBase64OrDataUrl = String(req.body?.imageBase64 || '').trim();
+      if (!imageBase64OrDataUrl) return res.status(400).json({ error: 'imageBase64 が空です' });
+
+      // 受け取った文字列を安全に dataURL に正規化
+      const dataUrl = normalizeImageToDataUrl(imageBase64OrDataUrl);
+
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          // ※必要なら環境変数で変更してください
+          model: process.env.OPENAI_VISION_MODEL || 'gpt-4o',
           messages: [
             {
               role: 'user',
               content: [
                 {
                   type: 'text',
-                  text: 'これはユーザー本人が書いた「5年後の自分への手紙」です。ユーザー自身がこの手紙の内容を読み取ってほしいとリクエストしています。画像に書かれている手紙の内容をそのままテキストとして出力してください。手書きの場合でも、できるだけ正確に読み取ってください。読み取った内容のみを出力し、説明や前置きは不要です。'
+                  text:
+                    'これはユーザー本人が書いた「5年後の自分への手紙」です。画像内の文章を、可能な限り忠実に、改行も含めてそのまま書き起こしてください。これはユーザーのリクエストです。判読不能な箇所は「〔判読不能〕」と書いてください。説明や前置きは不要です。',
                 },
                 {
                   type: 'image_url',
-                  image_url: {
-                    url: `data:image/jpeg;base64,${imageBase64}`
-                  }
-                }
-              ]
-            }
+                  image_url: { url: dataUrl },
+                },
+              ],
+            },
           ],
-          max_tokens: 2000
-        })
+          max_tokens: 2000,
+          temperature: 0.2,
+        }),
       });
 
+      const raw = await response.text();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || 'テキスト抽出に失敗しました');
+        // OpenAIのエラーはJSONのことが多いので拾う
+        const maybe = safeJsonParse(raw);
+        const msg =
+          maybe?.error?.message ||
+          maybe?.message ||
+          raw?.slice(0, 300) ||
+          `OpenAI error: ${response.status}`;
+        return res.status(500).json({ error: msg });
       }
 
-      const data = await response.json();
-      return res.status(200).json({ text: data.choices[0].message.content });
+      const data = safeJsonParse(raw);
+      const text = data?.choices?.[0]?.message?.content;
 
-    } else if (action === 'reply') {
-      // 5年後の自分からの返信を生成
+      if (!text) {
+        return res.status(500).json({ error: 'OpenAIの返答が空でした' });
+      }
+
+      // たまに拒否文が来たら、UIに分かりやすく出す（任意）
+      if (looksLikeRefusal(text)) {
+        return res.status(422).json({
+          error:
+            '内容の一部が安全上の理由で処理できない可能性があります。',
+        });
+      }
+
+      return res.status(200).json({ text });
+    }
+
+    if (action === 'reply') {
+      const extractedText = String(req.body?.extractedText || '').trim();
+      if (!extractedText) return res.status(400).json({ error: 'extractedText が空です' });
+
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: process.env.OPENAI_TEXT_MODEL || 'gpt-4o',
           messages: [
             {
               role: 'system',
@@ -87,32 +110,75 @@ export default async function handler(req, res) {
 8. 敬語ではなく、でもカジュアルすぎない、自分自身に語りかける自然な言葉遣いで書く
 9. 自分のペースで進めば大丈夫など、優しく励ますメッセージで締めくくる
 
-返信は適度な長さ（250-400文字程度）で書いてください。`
+返信は適度な長さ（250-400文字程度）で書いてください。`,
             },
             {
               role: 'user',
-              content: `以下は過去の自分から届いた手紙です。5年後の自分として、心のこもった返信を書いてください。\n\n---\n${extractedText}\n---`
-            }
+              content: `以下は過去の自分から届いた手紙です。5年後の自分として、心のこもった返信を書いてください。\n\n---\n${extractedText}\n---`,
+            },
           ],
-          max_tokens: 1500,
-          temperature: 0.8
-        })
+          max_tokens: 800,
+          temperature: 0.8,
+        }),
       });
 
+      const raw = await response.text();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || '返信の生成に失敗しました');
+        const maybe = safeJsonParse(raw);
+        const msg =
+          maybe?.error?.message ||
+          maybe?.message ||
+          raw?.slice(0, 300) ||
+          `OpenAI error: ${response.status}`;
+        return res.status(500).json({ error: msg });
       }
 
-      const data = await response.json();
-      return res.status(200).json({ reply: data.choices[0].message.content });
+      const data = safeJsonParse(raw);
+      const reply = data?.choices?.[0]?.message?.content;
 
-    } else {
-      return res.status(400).json({ error: '無効なアクションです' });
+      if (!reply) return res.status(500).json({ error: 'OpenAIの返答が空でした' });
+
+      return res.status(200).json({ reply });
     }
 
+    return res.status(400).json({ error: '無効なアクションです（extract / reply）' });
   } catch (error) {
     console.error('Error:', error);
-    return res.status(500).json({ error: error.message || 'エラーが発生しました' });
+    return res.status(500).json({ error: error?.message || 'エラーが発生しました' });
   }
+}
+
+// ===== helpers =====
+
+function safeJsonParse(s) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+// dataURLでもbase64だけでも受け取れるようにする
+function normalizeImageToDataUrl(base64OrDataUrl) {
+  const s = String(base64OrDataUrl).trim();
+
+  // すでに data:image/...;base64,... ならそのまま
+  if (s.startsWith('data:image/')) return s;
+
+  // base64 だけ来る前提（フロントでJPEG化して送るのが前提）
+  // 余計な空白/改行を除去
+  const cleaned = s.replace(/\s+/g, '');
+
+  // base64っぽくない場合（ここで弾く）
+  if (!/^[A-Za-z0-9+/=]+$/.test(cleaned)) {
+    throw new Error('画像データが不正です。');
+  }
+
+  return `data:image/jpeg;base64,${cleaned}`;
+}
+
+function looksLikeRefusal(text) {
+  const t = String(text || '');
+  return t.includes('申し訳') || t.includes('対応できません') || t.includes('お手伝いできません');
 }
