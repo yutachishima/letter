@@ -34,7 +34,7 @@
       background-blend-mode: soft-light;
     }
     .letter-shadow {
-      box-shadow: 
+      box-shadow:
         0 1px 1px rgba(0,0,0,0.08),
         0 2px 2px rgba(0,0,0,0.08),
         0 4px 4px rgba(0,0,0,0.08),
@@ -48,8 +48,72 @@
 </head>
 <body>
   <div id="root"></div>
+
   <script type="text/babel">
     const { useState, useRef, useEffect } = React;
+
+    /**
+     * ✅ 重要：スマホ写真を「JPEGに変換＆縮小」して dataURL を返す
+     * - 高解像度のままBase64にすると 413（Request Entity Too Large）になりやすい
+     * - HEIC/HEIF混在時の事故も減らせる
+     */
+    function compressToJpegDataUrl(file, maxSide = 1280, quality = 0.75) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+
+        img.onload = () => {
+          try {
+            const w0 = img.naturalWidth || img.width;
+            const h0 = img.naturalHeight || img.height;
+
+            const scale = Math.min(1, maxSide / Math.max(w0, h0));
+            const w = Math.max(1, Math.round(w0 * scale));
+            const h = Math.max(1, Math.round(h0 * scale));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+
+            // 必ずJPEGで吐く（サイズが小さくなりやすい）
+            const dataUrl = canvas.toDataURL('image/jpeg', quality);
+            URL.revokeObjectURL(url);
+            resolve(dataUrl);
+          } catch (e) {
+            URL.revokeObjectURL(url);
+            reject(e);
+          }
+        };
+
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error('画像の読み込みに失敗しました（対応形式でない可能性があります）。'));
+        };
+
+        img.src = url;
+      });
+    }
+
+    function base64FromDataUrl(dataUrl) {
+      if (typeof dataUrl !== 'string') return '';
+      const i = dataUrl.indexOf(',');
+      if (i === -1) return '';
+      return dataUrl.slice(i + 1);
+    }
+
+    async function readErrorMessage(response) {
+      const raw = await response.text();
+      try {
+        const j = JSON.parse(raw);
+        return j?.error || j?.message || raw;
+      } catch {
+        // JSONじゃない（例：Request Entity Too Large / HTMLなど）でも落ちない
+        return raw;
+      }
+    }
 
     // Floating particles component
     const FloatingParticles = () => {
@@ -86,7 +150,7 @@
     // Letter display component
     const LetterDisplay = ({ content, isFromFuture, delay = 0 }) => {
       const [visible, setVisible] = useState(false);
-      
+
       useEffect(() => {
         const timer = setTimeout(() => setVisible(true), delay);
         return () => clearTimeout(timer);
@@ -95,42 +159,39 @@
       if (!visible) return null;
 
       return (
-        <div 
+        <div
           className={`
             relative p-8 md:p-12 rounded-sm letter-shadow
-            ${isFromFuture 
-              ? 'bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50' 
+            ${isFromFuture
+              ? 'bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50'
               : 'bg-gradient-to-br from-stone-50 via-amber-50 to-stone-100'
             }
             paper-texture animate-fade-in-up
           `}
-          style={{ 
+          style={{
             transform: isFromFuture ? 'rotate(0.5deg)' : 'rotate(-0.5deg)',
             animationDelay: `${delay}ms`
           }}
         >
-          {/* Decorative corner */}
           <div className="absolute top-4 right-4 w-16 h-16 opacity-20">
             <svg viewBox="0 0 100 100" className="w-full h-full">
-              <path 
-                d="M90 10 L90 90 L10 90" 
-                fill="none" 
-                stroke="#8B7355" 
+              <path
+                d="M90 10 L90 90 L10 90"
+                fill="none"
+                stroke="#8B7355"
                 strokeWidth="2"
               />
               <circle cx="90" cy="10" r="4" fill="#8B7355"/>
             </svg>
           </div>
 
-          {/* Header */}
           <div className="mb-6 pb-4 border-b border-amber-200/50">
             <span className="japanese-serif text-amber-800/60 text-sm tracking-wider">
               {isFromFuture ? '' : ''}
             </span>
           </div>
 
-          {/* Content */}
-          <div 
+          <div
             className={`
               ${isFromFuture ? 'handwriting text-2xl md:text-3xl' : 'japanese-sans text-lg'}
               text-stone-700 leading-relaxed whitespace-pre-wrap
@@ -139,17 +200,16 @@
             {content}
           </div>
 
-          {/* Signature area for future letter */}
           {isFromFuture && (
             <div className="mt-8 pt-4 border-t border-amber-200/30 text-right">
               <p className="handwriting text-xl text-amber-700/80">
                 5年後の私より
               </p>
               <p className="japanese-sans text-sm text-stone-400 mt-2">
-                {new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000).toLocaleDateString('ja-JP', { 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
+                {new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000).toLocaleDateString('ja-JP', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
                 })}
               </p>
             </div>
@@ -175,7 +235,7 @@
         <p className="japanese-serif text-lg text-amber-800/80">{message}</p>
         <div className="flex gap-1 mt-3">
           {[0, 1, 2].map(i => (
-            <div 
+            <div
               key={i}
               className="w-2 h-2 rounded-full bg-amber-400"
               style={{
@@ -191,49 +251,81 @@
     // Main App
     const App = () => {
       const [image, setImage] = useState(null);
-      const [imagePreview, setImagePreview] = useState(null);
+      const [imagePreview, setImagePreview] = useState(null); // JPEG化＆縮小済みdataURL
       const [extractedText, setExtractedText] = useState('');
       const [futureReply, setFutureReply] = useState('');
       const [loading, setLoading] = useState(false);
       const [loadingMessage, setLoadingMessage] = useState('');
       const [step, setStep] = useState(1);
       const [error, setError] = useState('');
+      const [preparing, setPreparing] = useState(false);
       const fileInputRef = useRef(null);
 
-      const handleImageUpload = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-          setImage(file);
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            setImagePreview(reader.result);
-          };
-          reader.readAsDataURL(file);
-          setError('');
+      /**
+       * ✅ APIのURL
+       * - VercelでこのHTMLも配信しているならこのまま '/api/process-letter' でOK
+       * - GitHub Pagesで配信して、APIだけVercelに置くなら以下を設定：
+       *   window.API_BASE = 'https://xxxxx.vercel.app'
+       *   （index.htmlの先頭で <script>window.API_BASE=...</script> と書く等）
+       */
+      const API_URL = (window.API_BASE ? String(window.API_BASE).replace(/\/$/, '') : '') + '/api/process-letter';
+
+      const prepareImage = async (file) => {
+        setPreparing(true);
+        setError('');
+        setExtractedText('');
+        setFutureReply('');
+        setStep(1);
+
+        try {
+          // スマホ写真は大きいので縮小＆JPEG化
+          const dataUrl = await compressToJpegDataUrl(file, 1280, 0.75);
+          setImagePreview(dataUrl);
+        } catch (e) {
+          setImage(null);
+          setImagePreview(null);
+          setError(e?.message || '画像の準備に失敗しました。別の画像で試してください。');
+        } finally {
+          setPreparing(false);
         }
       };
 
-      const handleDrop = (e) => {
-        e.preventDefault();
-        const file = e.dataTransfer.files[0];
-        if (file && file.type.startsWith('image/')) {
-          setImage(file);
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            setImagePreview(reader.result);
-          };
-          reader.readAsDataURL(file);
-          setError('');
+      const handleImageUpload = async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+          setError('画像ファイルを選んでください。');
+          return;
         }
+
+        setImage(file);
+        await prepareImage(file);
       };
 
-      const handleDragOver = (e) => {
+      const handleDrop = async (e) => {
         e.preventDefault();
+        const file = e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+          setError('画像ファイルをドロップしてください。');
+          return;
+        }
+
+        setImage(file);
+        await prepareImage(file);
       };
+
+      const handleDragOver = (e) => e.preventDefault();
 
       const processLetter = async () => {
-        if (!image) {
+        if (!image || !imagePreview) {
           setError('手紙の画像をアップロードしてください');
+          return;
+        }
+        if (preparing) {
+          setError('画像を準備中です。少し待ってから実行してください。');
           return;
         }
 
@@ -243,14 +335,15 @@
         try {
           // Step 1: Extract text from image
           setLoadingMessage('手紙を読み取っています...');
-          
-          const base64Image = imagePreview.split(',')[1];
-          
-          const extractResponse = await fetch('/api/process-letter', {
+
+          const base64Image = base64FromDataUrl(imagePreview);
+          if (!base64Image) {
+            throw new Error('画像データの変換に失敗しました。別の画像で試してください。');
+          }
+
+          const extractResponse = await fetch(API_URL, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: 'extract',
               imageBase64: base64Image
@@ -258,8 +351,8 @@
           });
 
           if (!extractResponse.ok) {
-            const errorData = await extractResponse.json();
-            throw new Error(errorData.error || 'テキスト抽出に失敗しました');
+            const msg = await readErrorMessage(extractResponse);
+            throw new Error(msg || 'テキスト抽出に失敗しました');
           }
 
           const extractData = await extractResponse.json();
@@ -268,12 +361,10 @@
 
           // Step 2: Generate future self reply
           setLoadingMessage('5年後の自分が返信を書いています...');
-          
-          const replyResponse = await fetch('/api/process-letter', {
+
+          const replyResponse = await fetch(API_URL, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: 'reply',
               extractedText: extracted
@@ -281,8 +372,8 @@
           });
 
           if (!replyResponse.ok) {
-            const errorData = await replyResponse.json();
-            throw new Error(errorData.error || '返信の生成に失敗しました');
+            const msg = await readErrorMessage(replyResponse);
+            throw new Error(msg || '返信の生成に失敗しました');
           }
 
           const replyData = await replyResponse.json();
@@ -290,7 +381,7 @@
           setStep(2);
 
         } catch (err) {
-          setError(err.message || 'エラーが発生しました');
+          setError(err?.message || 'エラーが発生しました');
         } finally {
           setLoading(false);
           setLoadingMessage('');
@@ -304,17 +395,17 @@
         setFutureReply('');
         setStep(1);
         setError('');
+        setPreparing(false);
       };
 
       return (
         <div className="min-h-screen bg-gradient-to-br from-amber-100 via-orange-50 to-stone-100 relative overflow-hidden">
           <FloatingParticles />
-          
+
           <div className="absolute top-0 right-0 w-96 h-96 bg-amber-200/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"/>
           <div className="absolute bottom-0 left-0 w-80 h-80 bg-orange-200/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"/>
-          
+
           <div className="relative z-10 container mx-auto px-4 py-8 md:py-16">
-            {/* Header */}
             <header className="text-center mb-12 animate-fade-in-up">
               <h1 className="japanese-serif text-4xl md:text-5xl text-amber-900 mb-3">
                 5年後の自分への手紙
@@ -324,14 +415,9 @@
               </p>
             </header>
 
-            {/* Main Content */}
             {step === 1 ? (
               <div className="max-w-2xl mx-auto">
-                {/* Image Upload */}
-                <div 
-                  className="mb-8 animate-fade-in-up" 
-                  style={{ animationDelay: '100ms' }}
-                >
+                <div className="mb-8 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
                   <label className="block japanese-sans text-stone-700 mb-2 text-sm">
                     手紙の画像をアップロード
                   </label>
@@ -342,8 +428,8 @@
                     className={`
                       relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer
                       transition-all duration-300 bg-white/50
-                      ${imagePreview 
-                        ? 'border-amber-400' 
+                      ${imagePreview
+                        ? 'border-amber-400'
                         : 'border-amber-200 hover:border-amber-300 hover:bg-white/70'
                       }
                     `}
@@ -352,20 +438,24 @@
                       ref={fileInputRef}
                       type="file"
                       accept="image/*"
+                      capture="environment"
                       onChange={handleImageUpload}
                       className="hidden"
                     />
-                    
+
                     {imagePreview ? (
                       <div className="space-y-4">
-                        <img 
-                          src={imagePreview} 
-                          alt="アップロードした手紙" 
+                        <img
+                          src={imagePreview}
+                          alt="アップロードした手紙"
                           className="max-h-64 mx-auto rounded-lg shadow-md"
                         />
                         <p className="japanese-sans text-sm text-amber-700">
                           クリックして別の画像を選択
                         </p>
+                        {preparing && (
+                          <p className="japanese-sans text-xs text-stone-500">画像を最適化中…</p>
+                        )}
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -379,41 +469,41 @@
                         <p className="japanese-sans text-stone-600">
                           クリックまたはドラッグ＆ドロップ
                         </p>
+                        {preparing && (
+                          <p className="japanese-sans text-xs text-stone-500">画像を最適化中…</p>
+                        )}
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Error Message */}
                 {error && (
                   <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg animate-fade-in-up">
-                    <p className="japanese-sans text-red-700 text-sm">{error}</p>
+                    <p className="japanese-sans text-red-700 text-sm whitespace-pre-wrap">{error}</p>
                   </div>
                 )}
 
-                {/* Submit Button */}
                 <div className="text-center animate-fade-in-up" style={{ animationDelay: '200ms' }}>
                   {loading ? (
                     <LoadingAnimation message={loadingMessage} />
                   ) : (
                     <button
                       onClick={processLetter}
-                      disabled={!image}
+                      disabled={!imagePreview || preparing}
                       className={`
                         px-8 py-4 rounded-full japanese-serif text-lg
                         transition-all duration-300 transform
-                        ${image
+                        ${imagePreview && !preparing
                           ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg hover:shadow-xl hover:scale-105'
                           : 'bg-stone-200 text-stone-400 cursor-not-allowed'
                         }
                       `}
                     >
-                      手紙を読み取って返信を受け取る
+                      {preparing ? '画像を最適化中…' : '手紙を読み取って返信を受け取る'}
                     </button>
                   )}
                 </div>
 
-                {/* Instructions */}
                 <div className="mt-12 text-center animate-fade-in-up" style={{ animationDelay: '300ms' }}>
                   <div className="inline-flex items-center gap-8 text-stone-500 japanese-sans text-sm">
                     <div className="flex flex-col items-center">
@@ -440,9 +530,7 @@
                 </div>
               </div>
             ) : (
-              /* Results Display */
               <div className="max-w-3xl mx-auto space-y-8">
-                {/* Original Letter */}
                 <div>
                   <h2 className="japanese-serif text-xl text-amber-800 mb-4 text-center">
                     📜 読み取った手紙
@@ -450,7 +538,6 @@
                   <LetterDisplay content={extractedText} isFromFuture={false} delay={0} />
                 </div>
 
-                {/* Divider */}
                 <div className="flex items-center justify-center py-4">
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-amber-300 to-transparent"/>
                   <div className="px-4">
@@ -462,7 +549,6 @@
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-amber-300 to-transparent"/>
                 </div>
 
-                {/* Future Reply */}
                 <div>
                   <h2 className="japanese-serif text-xl text-amber-800 mb-4 text-center">
                     ✉️ 5年後の自分からの返信
@@ -470,12 +556,11 @@
                   <LetterDisplay content={futureReply} isFromFuture={true} delay={500} />
                 </div>
 
-                {/* Reset Button */}
                 <div className="text-center pt-8 animate-fade-in-up" style={{ animationDelay: '1000ms' }}>
                   <button
                     onClick={resetApp}
-                    className="px-6 py-3 rounded-full japanese-sans text-amber-700 
-                             border-2 border-amber-300 hover:bg-amber-50 
+                    className="px-6 py-3 rounded-full japanese-sans text-amber-700
+                             border-2 border-amber-300 hover:bg-amber-50
                              transition-all duration-300"
                   >
                     新しい手紙を読み取る
@@ -484,7 +569,6 @@
               </div>
             )}
 
-            {/* Footer */}
             <footer className="mt-16 text-center">
               <p className="japanese-sans text-sm text-stone-400">
                 心を込めた手紙が、未来へ届きます ✨
