@@ -260,6 +260,11 @@
       const [error, setError] = useState('');
       const [preparing, setPreparing] = useState(false);
       const fileInputRef = useRef(null);
+      
+      const [showSourcePicker, setShowSourcePicker] = useState(false);
+      const cameraInputRef = useRef(null);
+      const libraryInputRef = useRef(null);
+
 
 
       const API_URL = (window.API_BASE ? String(window.API_BASE).replace(/\/$/, '') : '') + '/api/process-letter';
