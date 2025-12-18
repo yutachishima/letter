@@ -202,11 +202,15 @@
                 5年後の私より
               </p>
               <p className="japanese-sans text-base text-stone-500 mt-2">
-                {new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000).toLocaleDateString('ja-JP', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric'
-                })}
+                {(() => {
+                  const today = new Date();
+                  const futureDate = new Date(today.getFullYear() + 5, today.getMonth(), today.getDate());
+                  return futureDate.toLocaleDateString('ja-JP', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  });
+                })()}
               </p>
             </div>
           )}
