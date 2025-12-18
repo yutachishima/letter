@@ -54,8 +54,6 @@
 
     /**
      * ✅ 重要：スマホ写真を「JPEGに変換＆縮小」して dataURL を返す
-     * - 高解像度のままBase64にすると 413（Request Entity Too Large）になりやすい
-     * - HEIC/HEIF混在時の事故も減らせる
      */
     function compressToJpegDataUrl(file, maxSide = 1280, quality = 0.75) {
       return new Promise((resolve, reject) => {
@@ -78,7 +76,6 @@
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, w, h);
 
-            // 必ずJPEGで吐く（サイズが小さくなりやすい）
             const dataUrl = canvas.toDataURL('image/jpeg', quality);
             URL.revokeObjectURL(url);
             resolve(dataUrl);
@@ -110,7 +107,6 @@
         const j = JSON.parse(raw);
         return j?.error || j?.message || raw;
       } catch {
-        // JSONじゃない（例：Request Entity Too Large / HTMLなど）でも落ちない
         return raw;
       }
     }
@@ -248,48 +244,130 @@
       </div>
     );
 
+    // Image Upload Box Component
+    const ImageUploadBox = ({ index, imagePreview, preparing, onUploadClick, onDrop, onRemove }) => {
+      const handleDragOver = (e) => e.preventDefault();
+
+      return (
+        <div
+          onClick={onUploadClick}
+          onDrop={onDrop}
+          onDragOver={handleDragOver}
+          className={`
+            relative border-2 border-dashed rounded-xl p-4 text-center cursor-pointer
+            transition-all duration-300 bg-white/50 flex-1 min-h-[160px] flex flex-col items-center justify-center
+            ${imagePreview
+              ? 'border-amber-400'
+              : 'border-amber-200 hover:border-amber-300 hover:bg-white/70'
+            }
+          `}
+        >
+          {imagePreview ? (
+            <div className="space-y-2 relative w-full">
+              <img
+                src={imagePreview}
+                alt={`手紙${index + 1}`}
+                className="max-h-32 mx-auto rounded-lg shadow-md"
+              />
+              <p className="japanese-sans text-xs text-amber-700">
+                {index + 1}枚目
+              </p>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove();
+                }}
+                className="absolute top-0 right-0 w-6 h-6 bg-red-400 text-white rounded-full text-xs hover:bg-red-500 transition-colors"
+              >
+                ✕
+              </button>
+              {preparing && (
+                <p className="japanese-sans text-xs text-stone-500">最適化中…</p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="w-12 h-12 mx-auto opacity-50">
+                <svg viewBox="0 0 64 64" className="w-full h-full">
+                  <rect x="8" y="12" width="48" height="40" rx="4" fill="none" stroke="#8B7355" strokeWidth="2"/>
+                  <circle cx="22" cy="28" r="5" fill="none" stroke="#8B7355" strokeWidth="2"/>
+                  <path d="M8 44 L24 32 L36 42 L48 30 L56 38" fill="none" stroke="#8B7355" strokeWidth="2"/>
+                </svg>
+              </div>
+              <p className="japanese-sans text-stone-600 text-sm">
+                {index + 1}枚目
+              </p>
+              <p className="japanese-sans text-stone-400 text-xs">
+                ここをタップ or クリック
+              </p>
+              {preparing && (
+                <p className="japanese-sans text-xs text-stone-500">最適化中…</p>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
+
     // Main App
     const App = () => {
-      const [image, setImage] = useState(null);
-      const [imagePreview, setImagePreview] = useState(null); // JPEG化＆縮小済みdataURL
+      const [images, setImages] = useState([null, null]); // 2枚分
+      const [imagePreviews, setImagePreviews] = useState([null, null]); // 2枚分のプレビュー
       const [extractedText, setExtractedText] = useState('');
       const [futureReply, setFutureReply] = useState('');
       const [loading, setLoading] = useState(false);
       const [loadingMessage, setLoadingMessage] = useState('');
       const [step, setStep] = useState(1);
       const [error, setError] = useState('');
-      const [preparing, setPreparing] = useState(false);
-      const fileInputRef = useRef(null);
+      const [preparing, setPreparing] = useState([false, false]);
       
-      const [showSourcePicker, setShowSourcePicker] = useState(false);
-      const cameraInputRef = useRef(null);
-      const libraryInputRef = useRef(null);
-
-
+      const fileInputRef1 = useRef(null);
+      const fileInputRef2 = useRef(null);
 
       const API_URL = (window.API_BASE ? String(window.API_BASE).replace(/\/$/, '') : '') + '/api/process-letter';
 
-      const prepareImage = async (file) => {
-        setPreparing(true);
+      const prepareImage = async (file, index) => {
+        setPreparing(prev => {
+          const newPreparing = [...prev];
+          newPreparing[index] = true;
+          return newPreparing;
+        });
         setError('');
-        setExtractedText('');
-        setFutureReply('');
-        setStep(1);
 
         try {
-          // スマホ写真は大きいので縮小＆JPEG化
           const dataUrl = await compressToJpegDataUrl(file, 1280, 0.75);
-          setImagePreview(dataUrl);
+          setImagePreviews(prev => {
+            const newPreviews = [...prev];
+            newPreviews[index] = dataUrl;
+            return newPreviews;
+          });
+          setImages(prev => {
+            const newImages = [...prev];
+            newImages[index] = file;
+            return newImages;
+          });
         } catch (e) {
-          setImage(null);
-          setImagePreview(null);
+          setImages(prev => {
+            const newImages = [...prev];
+            newImages[index] = null;
+            return newImages;
+          });
+          setImagePreviews(prev => {
+            const newPreviews = [...prev];
+            newPreviews[index] = null;
+            return newPreviews;
+          });
           setError(e?.message || '画像の準備に失敗しました。別の画像で試してください。');
         } finally {
-          setPreparing(false);
+          setPreparing(prev => {
+            const newPreparing = [...prev];
+            newPreparing[index] = false;
+            return newPreparing;
+          });
         }
       };
 
-      const handleImageUpload = async (e) => {
+      const handleImageUpload = async (e, index) => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
 
@@ -298,11 +376,19 @@
           return;
         }
 
-        setImage(file);
-        await prepareImage(file);
+        await prepareImage(file, index);
+        e.target.value = ''; // Reset input
       };
 
-      const handleDrop = async (e) => {
+      const handleUploadClick = (index) => {
+        if (index === 0) {
+          fileInputRef1.current?.click();
+        } else {
+          fileInputRef2.current?.click();
+        }
+      };
+
+      const handleDrop = async (e, index) => {
         e.preventDefault();
         const file = e.dataTransfer.files && e.dataTransfer.files[0];
         if (!file) return;
@@ -312,18 +398,31 @@
           return;
         }
 
-        setImage(file);
-        await prepareImage(file);
+        await prepareImage(file, index);
       };
 
-      const handleDragOver = (e) => e.preventDefault();
+      const removeImage = (index) => {
+        setImages(prev => {
+          const newImages = [...prev];
+          newImages[index] = null;
+          return newImages;
+        });
+        setImagePreviews(prev => {
+          const newPreviews = [...prev];
+          newPreviews[index] = null;
+          return newPreviews;
+        });
+      };
+
+      const hasAtLeastOneImage = imagePreviews[0] || imagePreviews[1];
+      const isAnyPreparing = preparing[0] || preparing[1];
 
       const processLetter = async () => {
-        if (!image || !imagePreview) {
-          setError('手紙の画像をアップロードしてください');
+        if (!hasAtLeastOneImage) {
+          setError('手紙の画像を少なくとも1枚アップロードしてください');
           return;
         }
-        if (preparing) {
+        if (isAnyPreparing) {
           setError('画像を準備中です。少し待ってから実行してください。');
           return;
         }
@@ -332,31 +431,40 @@
         setError('');
 
         try {
-          // Step 1: Extract text from image
-          setLoadingMessage('手紙を読み取っています...');
+          // 全ての画像からテキストを抽出
+          const extractedTexts = [];
+          
+          for (let i = 0; i < 2; i++) {
+            if (imagePreviews[i]) {
+              setLoadingMessage(`手紙${i + 1}枚目を読み取っています...`);
+              
+              const base64Image = base64FromDataUrl(imagePreviews[i]);
+              if (!base64Image) {
+                throw new Error(`画像${i + 1}のデータ変換に失敗しました。`);
+              }
 
-          const base64Image = base64FromDataUrl(imagePreview);
-          if (!base64Image) {
-            throw new Error('画像データの変換に失敗しました。別の画像で試してください。');
+              const extractResponse = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'extract',
+                  imageBase64: base64Image
+                })
+              });
+
+              if (!extractResponse.ok) {
+                const msg = await readErrorMessage(extractResponse);
+                throw new Error(msg || `${i + 1}枚目のテキスト抽出に失敗しました`);
+              }
+
+              const extractData = await extractResponse.json();
+              extractedTexts.push(extractData.text);
+            }
           }
 
-          const extractResponse = await fetch(API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'extract',
-              imageBase64: base64Image
-            })
-          });
-
-          if (!extractResponse.ok) {
-            const msg = await readErrorMessage(extractResponse);
-            throw new Error(msg || 'テキスト抽出に失敗しました');
-          }
-
-          const extractData = await extractResponse.json();
-          const extracted = extractData.text;
-          setExtractedText(extracted);
+          // テキストを連結（2枚の場合は改行で繋ぐ）
+          const combinedText = extractedTexts.join('\n\n');
+          setExtractedText(combinedText);
 
           // Step 2: Generate future self reply
           setLoadingMessage('5年後の自分が返信を書いています...');
@@ -366,7 +474,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: 'reply',
-              extractedText: extracted
+              extractedText: combinedText
             })
           });
 
@@ -388,13 +496,13 @@
       };
 
       const resetApp = () => {
-        setImage(null);
-        setImagePreview(null);
+        setImages([null, null]);
+        setImagePreviews([null, null]);
         setExtractedText('');
         setFutureReply('');
         setStep(1);
         setError('');
-        setPreparing(false);
+        setPreparing([false, false]);
       };
 
       return (
@@ -416,120 +524,79 @@
 
             {step === 1 ? (
               <div className="max-w-2xl mx-auto">
-                <div className="mb-8 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
-                  <label className="block japanese-sans text-stone-700 mb-2 text-sm">
-                    手紙の画像をアップロード
-                  </label>
-                  <div
-                    onClick={() => setShowSourcePicker(true)}
-                    onDrop={handleDrop}
-                    onDragOver={handleDragOver}
-                    className={`
-                      relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer
-                      transition-all duration-300 bg-white/50
-                      ${imagePreview
-                        ? 'border-amber-400'
-                        : 'border-amber-200 hover:border-amber-300 hover:bg-white/70'
-                      }
-                    `}
-                  >
-                    {/* カメラで撮影（captureあり） */}
-                    <input
-                      ref={cameraInputRef}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                      />
-                    
-                    {/* 写真を選ぶ（captureなし） */}
-                    <input
-                      ref={libraryInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                      />
-
-
-                    {imagePreview ? (
-                      <div className="space-y-4">
-                        <img
-                          src={imagePreview}
-                          alt="アップロードした手紙"
-                          className="max-h-64 mx-auto rounded-lg shadow-md"
-                        />
-                        <p className="japanese-sans text-sm text-amber-700">
-                          クリックして別の画像を選択
-                        </p>
-                        {preparing && (
-                          <p className="japanese-sans text-xs text-stone-500">画像を最適化中…</p>
-                        )}
+                {/* ステップインジケーター（上に移動） */}
+                <div className="mb-8 text-center animate-fade-in-up">
+                  <div className="inline-flex items-center gap-4 md:gap-8 text-stone-500 japanese-sans text-sm">
+                    <div className="flex flex-col items-center">
+                      <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mb-2">
+                        <span className="text-amber-600">1</span>
                       </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="w-16 h-16 mx-auto opacity-50">
-                          <svg viewBox="0 0 64 64" className="w-full h-full">
-                            <rect x="8" y="12" width="48" height="40" rx="4" fill="none" stroke="#8B7355" strokeWidth="2"/>
-                            <circle cx="22" cy="28" r="5" fill="none" stroke="#8B7355" strokeWidth="2"/>
-                            <path d="M8 44 L24 32 L36 42 L48 30 L56 38" fill="none" stroke="#8B7355" strokeWidth="2"/>
-                          </svg>
-                        </div>
-                        <p className="japanese-sans text-stone-600">
-                          クリックまたはドラッグ＆ドロップ
-                        </p>
-                        {preparing && (
-                          <p className="japanese-sans text-xs text-stone-500">画像を最適化中…</p>
-                        )}
+                      <span>手紙を撮影</span>
+                    </div>
+                    <div className="w-4 md:w-8 h-px bg-amber-200"/>
+                    <div className="flex flex-col items-center">
+                      <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mb-2">
+                        <span className="text-amber-600">2</span>
                       </div>
-                    )}
+                      <span>画像をアップロード</span>
+                    </div>
+                    <div className="w-4 md:w-8 h-px bg-amber-200"/>
+                    <div className="flex flex-col items-center">
+                      <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mb-2">
+                        <span className="text-amber-600">3</span>
+                      </div>
+                      <span>返信を受け取る</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* ✅ ここに入れる：選択モーダル（この位置が正解） */}
-{showSourcePicker && (
-  <div
-    className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4"
-    onClick={() => setShowSourcePicker(false)}
-  >
-    <div
-      className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <p className="japanese-sans text-sm text-stone-600 mb-3">画像の選び方</p>
+                <div className="mb-8 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
+                  <label className="block japanese-sans text-stone-700 mb-2 text-sm">
+                    手紙の画像をアップロード（1〜2枚）
+                  </label>
+                  
+                  {/* 1枚目用のファイル入力 */}
+                  <input
+                    ref={fileInputRef1}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleImageUpload(e, 0)}
+                    className="hidden"
+                  />
+                  
+                  {/* 2枚目用のファイル入力 */}
+                  <input
+                    ref={fileInputRef2}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleImageUpload(e, 1)}
+                    className="hidden"
+                  />
 
-      <div className="grid gap-2">
-        <button
-          className="w-full rounded-xl bg-amber-500 px-4 py-3 text-white japanese-sans"
-          onClick={() => {
-            setShowSourcePicker(false);
-            cameraInputRef.current?.click();
-          }}
-        >
-          カメラで撮影
-        </button>
-
-        <button
-          className="w-full rounded-xl border border-stone-300 bg-white px-4 py-3 japanese-sans"
-          onClick={() => {
-            setShowSourcePicker(false);
-            libraryInputRef.current?.click();
-          }}
-        >
-          写真を選ぶ
-        </button>
-
-        <button
-          className="w-full rounded-xl px-4 py-3 text-stone-600 japanese-sans"
-          onClick={() => setShowSourcePicker(false)}
-        >
-          キャンセル
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+                  {/* 2枚分のアップロードエリア */}
+                  <div className="flex gap-4">
+                    <ImageUploadBox
+                      index={0}
+                      imagePreview={imagePreviews[0]}
+                      preparing={preparing[0]}
+                      onUploadClick={() => handleUploadClick(0)}
+                      onDrop={(e) => handleDrop(e, 0)}
+                      onRemove={() => removeImage(0)}
+                    />
+                    <ImageUploadBox
+                      index={1}
+                      imagePreview={imagePreviews[1]}
+                      preparing={preparing[1]}
+                      onUploadClick={() => handleUploadClick(1)}
+                      onDrop={(e) => handleDrop(e, 1)}
+                      onRemove={() => removeImage(1)}
+                    />
+                  </div>
+                  
+                  <p className="japanese-sans text-xs text-stone-400 mt-2 text-center">
+                    ※ 便箋2枚の場合は2枚ともアップロードしてください
+                  </p>
+                </div>
 
                 {error && (
                   <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg animate-fade-in-up">
@@ -543,44 +610,19 @@
                   ) : (
                     <button
                       onClick={processLetter}
-                      disabled={!imagePreview || preparing}
+                      disabled={!hasAtLeastOneImage || isAnyPreparing}
                       className={`
                         px-8 py-4 rounded-full japanese-serif text-lg
                         transition-all duration-300 transform
-                        ${imagePreview && !preparing
+                        ${hasAtLeastOneImage && !isAnyPreparing
                           ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg hover:shadow-xl hover:scale-105'
                           : 'bg-stone-200 text-stone-400 cursor-not-allowed'
                         }
                       `}
                     >
-                      {preparing ? '画像を最適化中…' : '手紙を読み取って返信を受け取る'}
+                      {isAnyPreparing ? '画像を最適化中…' : '手紙を読み取って返信を受け取る'}
                     </button>
                   )}
-                </div>
-
-                <div className="mt-12 text-center animate-fade-in-up" style={{ animationDelay: '300ms' }}>
-                  <div className="inline-flex items-center gap-8 text-stone-500 japanese-sans text-sm">
-                    <div className="flex flex-col items-center">
-                      <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mb-2">
-                        <span className="text-amber-600">1</span>
-                      </div>
-                      <span>手紙を撮影</span>
-                    </div>
-                    <div className="w-8 h-px bg-amber-200"/>
-                    <div className="flex flex-col items-center">
-                      <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mb-2">
-                        <span className="text-amber-600">2</span>
-                      </div>
-                      <span>画像をアップロード</span>
-                    </div>
-                    <div className="w-8 h-px bg-amber-200"/>
-                    <div className="flex flex-col items-center">
-                      <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mb-2">
-                        <span className="text-amber-600">3</span>
-                      </div>
-                      <span>返信を受け取る</span>
-                    </div>
-                  </div>
                 </div>
               </div>
             ) : (
@@ -625,7 +667,7 @@
 
             <footer className="mt-16 text-center">
               <p className="japanese-sans text-sm text-stone-400">
-                心を込めた手紙が、未来へ届きます ✨
+                返信が表示されるまで、20～30秒程度かかります
               </p>
             </footer>
           </div>
