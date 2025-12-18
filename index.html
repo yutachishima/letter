@@ -42,8 +42,8 @@
         0 16px 16px rgba(0,0,0,0.08);
     }
     .handwriting { font-family: 'Caveat', cursive; }
-    .japanese-serif { font-family: 'Kaisei Decol', serif; }
-    .japanese-sans { font-family: 'Zen Kaku Gothic New', sans-serif; }
+    .japanese-serif { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 500; }
+    .japanese-sans { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 400; }
   </style>
 </head>
 <body>
@@ -201,7 +201,7 @@
               <p className="handwriting text-xl text-amber-700/80">
                 5年後の私より
               </p>
-              <p className="japanese-sans text-sm text-stone-400 mt-2">
+              <p className="japanese-sans text-base text-stone-500 mt-2">
                 {new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000).toLocaleDateString('ja-JP', {
                   year: 'numeric',
                   month: 'long',
@@ -228,7 +228,7 @@
           </div>
           <div className="absolute inset-0 rounded-full shimmer-bg opacity-50"/>
         </div>
-        <p className="japanese-serif text-lg text-amber-800/80">{message}</p>
+        <p className="japanese-serif text-xl text-amber-800/80">{message}</p>
         <div className="flex gap-1 mt-3">
           {[0, 1, 2].map(i => (
             <div
@@ -269,7 +269,7 @@
                 alt={`手紙${index + 1}`}
                 className="max-h-32 mx-auto rounded-lg shadow-md"
               />
-              <p className="japanese-sans text-xs text-amber-700">
+              <p className="japanese-sans text-sm font-medium text-amber-700">
                 {index + 1}枚目
               </p>
               <button
@@ -282,7 +282,7 @@
                 ✕
               </button>
               {preparing && (
-                <p className="japanese-sans text-xs text-stone-500">最適化中…</p>
+                <p className="japanese-sans text-sm text-stone-500">最適化中…</p>
               )}
             </div>
           ) : (
@@ -294,14 +294,14 @@
                   <path d="M8 44 L24 32 L36 42 L48 30 L56 38" fill="none" stroke="#8B7355" strokeWidth="2"/>
                 </svg>
               </div>
-              <p className="japanese-sans text-stone-600 text-sm">
+              <p className="japanese-sans text-stone-600 text-base font-medium">
                 {index + 1}枚目
               </p>
-              <p className="japanese-sans text-stone-400 text-xs">
+              <p className="japanese-sans text-stone-500 text-sm font-medium">
                 ここをタップ or クリック
               </p>
               {preparing && (
-                <p className="japanese-sans text-xs text-stone-500">最適化中…</p>
+                <p className="japanese-sans text-sm text-stone-500">最適化中…</p>
               )}
             </div>
           )}
@@ -517,7 +517,7 @@
               <h1 className="japanese-serif text-4xl md:text-5xl text-amber-900 mb-3">
                 5年後の自分からの返信
               </h1>
-              <p className="japanese-sans text-stone-600 text-lg max-w-xl mx-auto">
+              <p className="japanese-sans text-stone-600 text-xl font-medium max-w-xl mx-auto">
                 AIが手紙を読み取って、5年後の自分からの返信をお届けします
               </p>
             </header>
@@ -526,7 +526,7 @@
               <div className="max-w-2xl mx-auto">
                 {/* ステップインジケーター（上に移動） */}
                 <div className="mb-8 text-center animate-fade-in-up">
-                  <div className="inline-flex items-center gap-4 md:gap-8 text-stone-500 japanese-sans text-sm">
+                  <div className="inline-flex items-center gap-4 md:gap-8 text-stone-600 japanese-sans text-base font-medium">
                     <div className="flex flex-col items-center">
                       <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mb-2">
                         <span className="text-amber-600">1</span>
@@ -551,7 +551,7 @@
                 </div>
 
                 <div className="mb-8 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
-                  <label className="block japanese-sans text-stone-700 mb-2 text-sm">
+                  <label className="block japanese-sans text-stone-700 mb-2 text-base font-medium">
                     手紙の画像をアップロード（1〜2枚）
                   </label>
                   
@@ -593,14 +593,14 @@
                     />
                   </div>
                   
-                  <p className="japanese-sans text-xs text-stone-400 mt-2 text-center">
+                  <p className="japanese-sans text-sm text-stone-500 mt-2 text-center font-medium">
                     ※ 便箋2枚の場合は2枚ともアップロードしてください
                   </p>
                 </div>
 
                 {error && (
                   <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg animate-fade-in-up">
-                    <p className="japanese-sans text-red-700 text-sm whitespace-pre-wrap">{error}</p>
+                    <p className="japanese-sans text-red-700 text-base font-medium whitespace-pre-wrap">{error}</p>
                   </div>
                 )}
 
@@ -612,7 +612,7 @@
                       onClick={processLetter}
                       disabled={!hasAtLeastOneImage || isAnyPreparing}
                       className={`
-                        px-8 py-4 rounded-full japanese-serif text-lg
+                        px-8 py-4 rounded-full japanese-serif text-xl
                         transition-all duration-300 transform
                         ${hasAtLeastOneImage && !isAnyPreparing
                           ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg hover:shadow-xl hover:scale-105'
@@ -620,7 +620,7 @@
                         }
                       `}
                     >
-                      {isAnyPreparing ? '画像を最適化中…' : '手紙を読み取って返信を受け取る'}
+                      {isAnyPreparing ? '画像を最適化中…' : '返信を受け取る'}
                     </button>
                   )}
                 </div>
@@ -628,7 +628,7 @@
             ) : (
               <div className="max-w-3xl mx-auto space-y-8">
                 <div>
-                  <h2 className="japanese-serif text-xl text-amber-800 mb-4 text-center">
+                  <h2 className="japanese-serif text-2xl text-amber-800 mb-4 text-center">
                     📜 読み取った手紙
                   </h2>
                   <LetterDisplay content={extractedText} isFromFuture={false} delay={0} />
@@ -646,7 +646,7 @@
                 </div>
 
                 <div>
-                  <h2 className="japanese-serif text-xl text-amber-800 mb-4 text-center">
+                  <h2 className="japanese-serif text-2xl text-amber-800 mb-4 text-center">
                     ✉️ 5年後の自分からの返信
                   </h2>
                   <LetterDisplay content={futureReply} isFromFuture={true} delay={500} />
@@ -655,7 +655,7 @@
                 <div className="text-center pt-8 animate-fade-in-up" style={{ animationDelay: '1000ms' }}>
                   <button
                     onClick={resetApp}
-                    className="px-6 py-3 rounded-full japanese-sans text-amber-700
+                    className="px-6 py-3 rounded-full japanese-sans text-lg font-medium text-amber-700
                              border-2 border-amber-300 hover:bg-amber-50
                              transition-all duration-300"
                   >
@@ -666,8 +666,8 @@
             )}
 
             <footer className="mt-16 text-center">
-              <p className="japanese-sans text-sm text-stone-400">
-                返信が表示されるまで、20～30秒程度かかります
+              <p className="japanese-sans text-base text-stone-500 font-medium">
+                返信が表示されるまで、20～40秒程度かかります
               </p>
             </footer>
           </div>
