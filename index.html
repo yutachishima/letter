@@ -189,6 +189,23 @@
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v).trim());
     }
 
+    /** 便箋の行ごとの改行を取り除き、段落の区切り（空行）だけを残す */
+    function normalizeExtractedLineBreaks(text) {
+      if (!text) return text;
+      return String(text)
+        .replace(/\r\n/g, '\n')
+        .split(/\n[ \t]*\n+/)
+        .map(paragraph =>
+          paragraph
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0)
+            .join('')
+        )
+        .filter(paragraph => paragraph.length > 0)
+        .join('\n\n');
+    }
+
     /* ============================================================
        装飾
        ============================================================ */
@@ -303,15 +320,14 @@
 
     const StepIndicator = ({ current, mode }) => {
       const labels = [
-        mode === 'text' ? '手紙を書く' : '手紙を撮影',
-        mode === 'text' ? '内容を確認' : '画像をアップロード',
+        mode === 'text' ? '手紙を書く' : '手紙の画像をアップロード',
         '返信を受け取る',
         '1年後に送る'
       ];
 
       return (
         <div className="mb-8 animate-fade-in-up">
-          <div className="grid grid-cols-4 gap-1 md:gap-4 max-w-xl mx-auto text-stone-600 japanese-sans text-xs md:text-base font-medium">
+          <div className="grid grid-cols-3 gap-1 md:gap-4 max-w-xl mx-auto text-stone-600 japanese-sans text-xs md:text-base font-medium">
             {labels.map((label, i) => {
               const n = i + 1;
               const active = n <= current;
@@ -497,7 +513,7 @@
                 throw new Error(await readErrorMessage(res) || `${i + 1}枚目を読み取れませんでした。`);
               }
               const data = await res.json();
-              texts.push(data.text);
+              texts.push(normalizeExtractedLineBreaks(data.text));
             }
             combinedText = texts.join('\n\n');
           } else {
@@ -520,7 +536,6 @@
           setFutureReply(replyData.reply);
           setAiSkipped(false);
           setStep('reply');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (err) {
           setError(err?.message || '処理中に問題が発生しました。もう一度お試しください。');
         } finally {
@@ -546,10 +561,9 @@
         setFutureReply('');
         setAiSkipped(true);
         setStep('send');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
       };
 
-      /* ---------- 指定した日の18時に送る ---------- */
+      /* ---------- 指定した日に送る ---------- */
       const defaultSendDate = shiftJstDate(jstDateString(), { years: 1 });
       const minSendDate = shiftJstDate(jstDateString(), { days: 1 });
       const maxSendDate = shiftJstDate(jstDateString(), { years: 2 });
@@ -600,9 +614,8 @@
           }
 
           const data = await res.json();
-          setSentLabel(data.sendAtLabel || `${formatJaDateStr(sendDate)} 18:00`);
+          setSentLabel(data.sendAtLabel || `${formatJaDateStr(sendDate)} 18時頃`);
           setStep('done');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (err) {
           setError(err?.message || '予約できませんでした。時間をおいてお試しください。');
         } finally {
@@ -624,10 +637,14 @@
         setSentLabel('');
         setError('');
         setStep('compose');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
       };
 
-      const stepNumber = step === 'compose' ? (hasContent ? 2 : 1) : step === 'reply' ? 3 : 4;
+      const stepNumber = step === 'compose' ? 1 : step === 'reply' ? 2 : 3;
+
+      // 画面（step）が切り替わるたびに、必ずページの一番上から表示する
+      useEffect(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }, [step]);
 
       const ErrorBox = () => error ? (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg animate-fade-in-up">
@@ -647,12 +664,9 @@
               <h1 className="japanese-serif text-3xl md:text-4xl text-amber-900 mb-3">
                 1年後の自分からの返信
               </h1>
-              <p className="japanese-sans text-stone-600 text-xl font-medium max-w-xl mx-auto">
-                AIが手紙を読み取って、1年後の自分からの返信をお届けします
-              </p>
             </header>
 
-            {/* ---------------- STEP 1-2: 手紙を用意する ---------------- */}
+            {/* ---------------- STEP 1: 手紙を用意する ---------------- */}
             {step === 'compose' && (
               <div className="max-w-2xl mx-auto">
                 <StepIndicator current={stepNumber} mode={mode} />
@@ -744,7 +758,7 @@
                             : 'border-stone-200 text-stone-400 cursor-not-allowed'}
                         `}
                       >
-                        AI返信をスキップして1年後への送信へ進む
+                        AI生成の返信を受け取らず、1年後への送信に進む
                       </button>
 
                       <button
@@ -758,7 +772,7 @@
                             : 'bg-stone-200 text-stone-400 cursor-not-allowed'}
                         `}
                       >
-                        {isAnyPreparing ? '画像を最適化中…' : '返信を受け取る'}
+                        {isAnyPreparing ? '画像を最適化中…' : 'AI生成の返信を受け取る'}
                       </button>
                     </div>
                   )}
@@ -766,10 +780,10 @@
               </div>
             )}
 
-            {/* ---------------- STEP 3: 返信 ---------------- */}
+            {/* ---------------- STEP 2: 返信 ---------------- */}
             {step === 'reply' && (
               <div className="max-w-3xl mx-auto space-y-8">
-                <StepIndicator current={3} mode={mode} />
+                <StepIndicator current={2} mode={mode} />
 
                 <div>
                   <h2 className="japanese-serif text-2xl text-amber-800 mb-4 text-center">
@@ -798,7 +812,7 @@
 
                 <div className="text-center pt-8 space-y-4 animate-fade-in-up" style={{ animationDelay: '1000ms' }}>
                   <button
-                    onClick={() => { setError(''); setStep('send'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    onClick={() => { setError(''); setStep('send'); }}
                     className="px-8 py-4 rounded-full japanese-serif text-xl bg-gradient-to-r from-amber-500 to-orange-500
                                text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 transform"
                   >
@@ -817,19 +831,19 @@
               </div>
             )}
 
-            {/* ---------------- STEP 4: 1年後に送る ---------------- */}
+            {/* ---------------- STEP 3: 1年後に送る ---------------- */}
             {step === 'send' && (
               <div className="max-w-2xl mx-auto">
-                <StepIndicator current={4} mode={mode} />
+                <StepIndicator current={3} mode={mode} />
 
                 <div className="p-8 md:p-10 rounded-sm letter-shadow paper-texture animate-fade-in-up
                                 bg-gradient-to-br from-stone-50 via-amber-50 to-stone-100">
                   <h2 className="japanese-serif text-2xl text-amber-800 mb-6 text-center">
-                    1年後に送る
+                    1年後に、今日書いた手紙と、AIによる返信を送ることができます
                   </h2>
 
                   <p className="japanese-sans text-lg text-stone-700 mb-6 text-center leading-relaxed">
-                    1年後にも有効なメールアドレスを入力してください
+                    有効なメールアドレスを入力してください
                   </p>
 
                   <label htmlFor="email" className="sr-only">メールアドレス</label>
@@ -848,16 +862,16 @@
 
                   <div className="mt-6 space-y-2">
                     <p className="japanese-sans text-sm text-stone-600 leading-relaxed">
-                      ※このメールアドレスは、管理者には共有されません。
+                      ※このメールアドレスは、手紙の送信のみに使用します。
                     </p>
                     <p className="japanese-sans text-sm text-stone-600 leading-relaxed">
-                      ※手紙の内容も、管理者を含めた第三者が読むことはありません。
+                      ※手紙の内容も暗号化されるため、管理者を含めた第三者が読むことはありません。
                     </p>
                   </div>
 
                   <div className="mt-6 pt-6 border-t border-amber-200/60">
                     <label htmlFor="send-date" className="block japanese-sans text-base text-stone-700 mb-2 text-center">
-                      送信日
+                      送信日（タップで変更可能）
                     </label>
                     <input
                       id="send-date"
@@ -873,24 +887,8 @@
 
                     <p className="japanese-sans text-sm text-stone-500 mt-3 text-center leading-relaxed">
                       {sendDateValid
-                        ? `${formatJaDateStr(sendDate)}の18時ごろに届きます`
+                        ? `${formatJaDateStr(sendDate)}に届きます`
                         : '明日から2年後までの日付を選んでください'}
-                    </p>
-
-                    {sendDate !== defaultSendDate && (
-                      <p className="text-center mt-2">
-                        <button
-                          onClick={() => { setSendDate(defaultSendDate); setError(''); }}
-                          className="japanese-sans text-sm font-medium text-amber-700 underline underline-offset-4
-                                     decoration-amber-300 hover:text-amber-800 transition-colors"
-                        >
-                          1年後（{formatJaDateStr(defaultSendDate)}）に戻す
-                        </button>
-                      </p>
-                    )}
-
-                    <p className="japanese-sans text-xs text-stone-400 mt-3 text-center leading-relaxed">
-                      送信時刻は18時（日本時間）です
                     </p>
                   </div>
                 </div>
@@ -952,9 +950,6 @@
                   </p>
 
                   <p className="japanese-sans text-sm text-stone-500 mt-6 leading-relaxed">
-                    確認のメールをいまお送りしました。届いていない場合は、迷惑メールフォルダをご確認ください。
-                  </p>
-                  <p className="japanese-sans text-sm text-stone-500 mt-2 leading-relaxed">
                     手紙は暗号化して保管され、閲覧用の鍵は当日に届くメールの中にだけあります。
                   </p>
                 </div>

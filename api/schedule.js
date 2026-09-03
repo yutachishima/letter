@@ -94,33 +94,6 @@ export default async function handler(req, res) {
 
     const sendAtLabel = formatJaDateTime(sendAt);
 
-    // 3. 予約できたことを本人にだけ知らせる（閲覧URLはまだ送らない）
-    let confirmationSent = false;
-    if (process.env.SEND_CONFIRMATION !== 'false') {
-      try {
-        await sendEmail({
-          to: String(email).trim(),
-          subject: '自分への手紙をお預かりしました',
-          text: [
-            '手紙をお預かりしました。',
-            '',
-            `${sendAtLabel}（日本時間）に、このアドレスへ手紙をお届けします。`,
-            'それまでは、手紙の内容が読めるURLはどこにも送られません。',
-            '',
-            'このメールに心当たりがない場合は、破棄していただいて構いません。',
-            '',
-            '感想や不明点がありましたら、以下の連絡先までお願いします。',
-            '筑波大学人間系　千島雄太',
-            'chishima.yuta.fw@u.tsukuba.ac.jp'
-          ].join('\n')
-        });
-        confirmationSent = true;
-      } catch (e) {
-        // 確認メールが送れなくても、予約自体は成立させる
-        console.error('confirmation mail failed');
-      }
-    }
-
     // 動作確認用（既定では無効）。ALLOW_TEST_SEND=1 のときだけ、すぐに本番のメールを送る。
     if (req.body?.testSendNow === true && process.env.ALLOW_TEST_SEND === '1') {
       const url = `${siteUrl(req)}/view#id=${id}&k=${key}`;
@@ -135,8 +108,7 @@ export default async function handler(req, res) {
       ok: true,
       sendDate,
       sendAt: sendAt.toISOString(),
-      sendAtLabel,
-      confirmationSent
+      sendAtLabel
     });
   } catch (error) {
     console.error('schedule error:', error?.message || error);
