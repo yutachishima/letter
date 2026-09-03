@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>1年後の自分からの返信</title>
   <link href="https://fonts.googleapis.com/css2?family=Kaisei+Decol&family=Zen+Kaku+Gothic+New:wght@300;400;500&family=Caveat:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -44,6 +44,36 @@
     .handwriting { font-family: 'Caveat', cursive; }
     .japanese-serif { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 500; }
     .japanese-sans { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 400; }
+
+    /* iOS Safariでも上下のブラウザUIに内容が隠れないようにする */
+    html {
+      min-height: 100%;
+      background: #fef3c7;
+      scroll-behavior: auto;
+    }
+    body {
+      margin: 0;
+      min-height: 100%;
+      overflow-x: hidden;
+      overflow-anchor: none;
+    }
+    #root { min-height: 100%; }
+    .app-shell {
+      min-height: 100vh;
+      min-height: 100dvh;
+    }
+    .app-content {
+      padding-top: calc(2rem + env(safe-area-inset-top, 0px));
+      /* Safari下部ツールバー分の余白も含め、フッターまで確実にスクロールできるようにする */
+      padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
+    }
+    @media (min-width: 768px) {
+      .app-content {
+        padding-top: 4rem;
+        padding-bottom: 4rem;
+      }
+    }
+
     @media (prefers-reduced-motion: reduce) {
       .animate-float, .animate-fade-in-up, .shimmer-bg { animation: none !important; }
       .animate-fade-in-up { opacity: 1; transform: none; }
@@ -52,12 +82,34 @@
 </head>
 <body>
   <script>
-    // QRコードや履歴からアクセスした際に、ブラウザが以前のスクロール位置を
-    // 復元してしまうことがあるため、読み込み時は必ず一番上から表示する
-    if ('scrollRestoration' in history) {
-      history.scrollRestoration = 'manual';
-    }
-    window.scrollTo(0, 0);
+    (() => {
+      // QRコードや履歴からアクセスした際に、iOS Safariが以前のスクロール位置を
+      // React描画後に復元することがあるため、描画タイミングをまたいで先頭へ戻す
+      if ('scrollRestoration' in history) {
+        history.scrollRestoration = 'manual';
+      }
+
+      const scrollToTop = () => {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+      };
+
+      const resetPageScroll = () => {
+        scrollToTop();
+        requestAnimationFrame(() => {
+          scrollToTop();
+          requestAnimationFrame(scrollToTop);
+        });
+      };
+
+      window.resetLetterPageScroll = resetPageScroll;
+      resetPageScroll();
+
+      document.addEventListener('DOMContentLoaded', resetPageScroll, { once: true });
+      window.addEventListener('load', resetPageScroll, { once: true });
+      window.addEventListener('pageshow', resetPageScroll);
+    })();
   </script>
 
   <div id="root"></div>
@@ -650,9 +702,10 @@
 
       const stepNumber = step === 'compose' ? 1 : step === 'reply' ? 2 : 3;
 
-      // 画面（step）が切り替わるたびに、必ずページの一番上から表示する
+      // 画面（step）が切り替わるたびに、描画後のページ先頭へ即座に戻す
       useEffect(() => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        const resetPageScroll = window.resetLetterPageScroll || (() => window.scrollTo(0, 0));
+        resetPageScroll();
       }, [step]);
 
       const ErrorBox = () => error ? (
@@ -662,13 +715,13 @@
       ) : null;
 
       return (
-        <div className="min-h-screen bg-gradient-to-br from-amber-100 via-orange-50 to-stone-100 relative overflow-hidden">
+        <div className="app-shell bg-gradient-to-br from-amber-100 via-orange-50 to-stone-100 relative overflow-x-hidden">
           <FloatingParticles />
 
           <div className="absolute top-0 right-0 w-96 h-96 bg-amber-200/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"/>
           <div className="absolute bottom-0 left-0 w-80 h-80 bg-orange-200/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"/>
 
-          <div className="relative z-10 container mx-auto px-4 py-8 md:py-16">
+          <div className="app-content relative z-10 container mx-auto px-4">
             <header className="text-center mb-12 animate-fade-in-up">
               <h1 className="japanese-serif text-3xl md:text-4xl text-amber-900 mb-3">
                 1年後の自分からの返信
