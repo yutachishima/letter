@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>5年後の自分からの返信</title>
+  <title>1年後の自分からの返信</title>
   <link href="https://fonts.googleapis.com/css2?family=Kaisei+Decol&family=Zen+Kaku+Gothic+New:wght@300;400;500&family=Caveat:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -44,6 +44,10 @@
     .handwriting { font-family: 'Caveat', cursive; }
     .japanese-serif { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 500; }
     .japanese-sans { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 400; }
+    @media (prefers-reduced-motion: reduce) {
+      .animate-float, .animate-fade-in-up, .shimmer-bg { animation: none !important; }
+      .animate-fade-in-up { opacity: 1; transform: none; }
+    }
   </style>
 </head>
 <body>
@@ -52,9 +56,9 @@
   <script type="text/babel">
     const { useState, useRef, useEffect } = React;
 
-    /**
-     * ✅ 重要：スマホ写真を「JPEGに変換＆縮小」して dataURL を返す
-     */
+    /* ============================================================
+       画像の圧縮（スマホ写真をJPEGに変換＆縮小）
+       ============================================================ */
     function compressToJpegDataUrl(file, maxSide = 1280, quality = 0.75) {
       return new Promise((resolve, reject) => {
         const url = URL.createObjectURL(file);
@@ -87,7 +91,7 @@
 
         img.onerror = () => {
           URL.revokeObjectURL(url);
-          reject(new Error('画像の読み込みに失敗しました（対応形式でない可能性があります）。'));
+          reject(new Error('画像を読み込めませんでした。別の形式の画像でお試しください。'));
         };
 
         img.src = url;
@@ -111,7 +115,83 @@
       }
     }
 
-    // Floating particles component
+    /* ============================================================
+       手紙の暗号化（ブラウザ内で暗号化してから送信する）
+       鍵はメールのURLの中だけに置き、サーバーには平文で残さない
+       ============================================================ */
+    function bytesToBase64(bytes) {
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      return btoa(binary);
+    }
+
+    function base64ToUrlSafe(b64) {
+      return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    async function encryptCapsule(obj) {
+      if (!window.crypto || !window.crypto.subtle) {
+        throw new Error('このブラウザでは暗号化に対応していません。別のブラウザでお試しください。');
+      }
+      const key = await crypto.subtle.generateKey(
+        { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
+      );
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const plain = new TextEncoder().encode(JSON.stringify(obj));
+      const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain);
+      const rawKey = await crypto.subtle.exportKey('raw', key);
+
+      return {
+        keyB64Url: base64ToUrlSafe(bytesToBase64(new Uint8Array(rawKey))),
+        capsule: {
+          v: 1,
+          alg: 'AES-GCM',
+          iv: bytesToBase64(iv),
+          ct: bytesToBase64(new Uint8Array(cipher))
+        }
+      };
+    }
+
+    /* ============================================================
+       日付ユーティリティ（送信時刻は日本時間の18時に固定）
+       ============================================================ */
+    function oneYearLater(from = new Date()) {
+      return new Date(from.getFullYear() + 1, from.getMonth(), from.getDate());
+    }
+
+    /** 日本時間での YYYY-MM-DD */
+    function jstDateString(date = new Date()) {
+      return new Date(date.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    }
+
+    /** 日本時間の日付を、年・日単位でずらす */
+    function shiftJstDate(dateStr, { years = 0, days = 0 } = {}) {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const next = new Date(Date.UTC(y + years, m - 1, d + days));
+      return next.toISOString().slice(0, 10);
+    }
+
+    function formatJaDate(d) {
+      return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' });
+    }
+
+    /** YYYY-MM-DD を「2027年9月3日」の形にする */
+    function formatJaDateStr(dateStr) {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      if (!y || !m || !d) return '';
+      return `${y}年${m}月${d}日`;
+    }
+
+    function isValidEmail(v) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v).trim());
+    }
+
+    /* ============================================================
+       装飾
+       ============================================================ */
     const FloatingParticles = () => {
       const particles = Array.from({ length: 15 }, (_, i) => ({
         id: i,
@@ -143,7 +223,6 @@
       );
     };
 
-    // Letter display component
     const LetterDisplay = ({ content, isFromFuture, delay = 0 }) => {
       const [visible, setVisible] = useState(false);
 
@@ -171,46 +250,24 @@
         >
           <div className="absolute top-4 right-4 w-16 h-16 opacity-20">
             <svg viewBox="0 0 100 100" className="w-full h-full">
-              <path
-                d="M90 10 L90 90 L10 90"
-                fill="none"
-                stroke="#8B7355"
-                strokeWidth="2"
-              />
+              <path d="M90 10 L90 90 L10 90" fill="none" stroke="#8B7355" strokeWidth="2"/>
               <circle cx="90" cy="10" r="4" fill="#8B7355"/>
             </svg>
           </div>
 
-          <div className="mb-6 pb-4 border-b border-amber-200/50">
-            <span className="japanese-serif text-amber-800/60 text-sm tracking-wider">
-              {isFromFuture ? '' : ''}
-            </span>
-          </div>
+          <div className="mb-6 pb-4 border-b border-amber-200/50"/>
 
-          <div
-            className={`
-              japanese-sans text-lg
-              text-stone-700 leading-relaxed whitespace-pre-wrap
-            `}
-          >
+          <div className="japanese-sans text-lg text-stone-700 leading-relaxed whitespace-pre-wrap">
             {content}
           </div>
 
           {isFromFuture && (
             <div className="mt-8 pt-4 border-t border-amber-200/30 text-right">
               <p className="handwriting text-xl text-amber-700/80">
-                5年後の私より
+                1年後の私より
               </p>
               <p className="japanese-sans text-base text-stone-500 mt-2">
-                {(() => {
-                  const today = new Date();
-                  const futureDate = new Date(today.getFullYear() + 5, today.getMonth(), today.getDate());
-                  return futureDate.toLocaleDateString('ja-JP', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                  });
-                })()}
+                {formatJaDate(oneYearLater())}
               </p>
             </div>
           )}
@@ -218,7 +275,6 @@
       );
     };
 
-    // Loading animation
     const LoadingAnimation = ({ message }) => (
       <div className="flex flex-col items-center justify-center py-12 animate-fade-in-up">
         <div className="relative w-24 h-24 mb-6">
@@ -238,17 +294,43 @@
             <div
               key={i}
               className="w-2 h-2 rounded-full bg-amber-400"
-              style={{
-                animation: 'float 1s ease-in-out infinite',
-                animationDelay: `${i * 0.2}s`
-              }}
+              style={{ animation: 'float 1s ease-in-out infinite', animationDelay: `${i * 0.2}s` }}
             />
           ))}
         </div>
       </div>
     );
 
-    // Image Upload Box Component
+    const StepIndicator = ({ current, mode }) => {
+      const labels = [
+        mode === 'text' ? '手紙を書く' : '手紙を撮影',
+        mode === 'text' ? '内容を確認' : '画像をアップロード',
+        '返信を受け取る',
+        '1年後に送る'
+      ];
+
+      return (
+        <div className="mb-8 animate-fade-in-up">
+          <div className="grid grid-cols-4 gap-1 md:gap-4 max-w-xl mx-auto text-stone-600 japanese-sans text-xs md:text-base font-medium">
+            {labels.map((label, i) => {
+              const n = i + 1;
+              const active = n <= current;
+              return (
+                <div key={label} className="flex flex-col items-center text-center">
+                  <div className={`w-9 h-9 md:w-10 md:h-10 rounded-full border-2 flex items-center justify-center mb-2 transition-colors duration-300 ${
+                    active ? 'bg-sky-50 border-sky-300' : 'bg-white/40 border-stone-200'
+                  }`}>
+                    <span className={active ? 'text-sky-600' : 'text-stone-400'}>{n}</span>
+                  </div>
+                  <span className={active ? '' : 'text-stone-400'}>{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    };
+
     const ImageUploadBox = ({ index, imagePreview, preparing, onUploadClick, onDrop, onRemove }) => {
       const handleDragOver = (e) => e.preventDefault();
 
@@ -260,34 +342,21 @@
           className={`
             relative border-2 border-dashed rounded-xl p-4 text-center cursor-pointer
             transition-all duration-300 bg-white/50 flex-1 min-h-[160px] flex flex-col items-center justify-center
-            ${imagePreview
-              ? 'border-amber-400'
-              : 'border-amber-200 hover:border-amber-300 hover:bg-white/70'
-            }
+            ${imagePreview ? 'border-amber-400' : 'border-amber-200 hover:border-amber-300 hover:bg-white/70'}
           `}
         >
           {imagePreview ? (
             <div className="space-y-2 relative w-full">
-              <img
-                src={imagePreview}
-                alt={`手紙${index + 1}`}
-                className="max-h-32 mx-auto rounded-lg shadow-md"
-              />
-              <p className="japanese-sans text-sm font-medium text-amber-700">
-                {index + 1}枚目
-              </p>
+              <img src={imagePreview} alt={`手紙${index + 1}`} className="max-h-32 mx-auto rounded-lg shadow-md"/>
+              <p className="japanese-sans text-sm font-medium text-amber-700">{index + 1}枚目</p>
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove();
-                }}
+                onClick={(e) => { e.stopPropagation(); onRemove(); }}
                 className="absolute top-0 right-0 w-6 h-6 bg-red-400 text-white rounded-full text-xs hover:bg-red-500 transition-colors"
+                aria-label={`${index + 1}枚目を削除`}
               >
                 ✕
               </button>
-              {preparing && (
-                <p className="japanese-sans text-sm text-stone-500">最適化中…</p>
-              )}
+              {preparing && <p className="japanese-sans text-sm text-stone-500">最適化中…</p>}
             </div>
           ) : (
             <div className="space-y-2">
@@ -298,135 +367,108 @@
                   <path d="M8 44 L24 32 L36 42 L48 30 L56 38" fill="none" stroke="#8B7355" strokeWidth="2"/>
                 </svg>
               </div>
-              <p className="japanese-sans text-stone-600 text-base font-medium">
-                {index + 1}枚目
-              </p>
-              <p className="japanese-sans text-stone-500 text-sm font-medium">
-                ここをタップ or クリック
-              </p>
-              {preparing && (
-                <p className="japanese-sans text-sm text-stone-500">最適化中…</p>
-              )}
+              <p className="japanese-sans text-stone-600 text-base font-medium">{index + 1}枚目</p>
+              <p className="japanese-sans text-stone-500 text-sm font-medium">ここをタップ or クリック</p>
+              {preparing && <p className="japanese-sans text-sm text-stone-500">最適化中…</p>}
             </div>
           )}
         </div>
       );
     };
 
-    // Main App
+    /* ============================================================
+       メインアプリ
+       ============================================================ */
     const App = () => {
-      const [images, setImages] = useState([null, null]); // 2枚分
-      const [imagePreviews, setImagePreviews] = useState([null, null]); // 2枚分のプレビュー
-      const [extractedText, setExtractedText] = useState('');
+      const [mode, setMode] = useState('photo');          // 'photo' | 'text'
+      const [step, setStep] = useState('compose');        // compose | reply | send | done
+
+      const [images, setImages] = useState([null, null]);
+      const [imagePreviews, setImagePreviews] = useState([null, null]);
+      const [preparing, setPreparing] = useState([false, false]);
+      const [typedText, setTypedText] = useState('');
+
+      const [letterText, setLetterText] = useState('');   // 読み取り結果 or 入力テキスト
       const [futureReply, setFutureReply] = useState('');
+      const [aiSkipped, setAiSkipped] = useState(false);
+
+      const [email, setEmail] = useState('');
+      const [sendDate, setSendDate] = useState(() => shiftJstDate(jstDateString(), { years: 1 }));
+      const [sentLabel, setSentLabel] = useState('');
+
       const [loading, setLoading] = useState(false);
       const [loadingMessage, setLoadingMessage] = useState('');
-      const [step, setStep] = useState(1);
       const [error, setError] = useState('');
-      const [preparing, setPreparing] = useState([false, false]);
-      
+
       const fileInputRef1 = useRef(null);
       const fileInputRef2 = useRef(null);
 
-      const API_URL = (window.API_BASE ? String(window.API_BASE).replace(/\/$/, '') : '') + '/api/process-letter';
+      const API_BASE = (window.API_BASE ? String(window.API_BASE).replace(/\/$/, '') : '');
+      const API_URL = API_BASE + '/api/process-letter';
+      const SCHEDULE_URL = API_BASE + '/api/schedule';
 
+      const hasAtLeastOneImage = Boolean(imagePreviews[0] || imagePreviews[1]);
+      const isAnyPreparing = preparing[0] || preparing[1];
+      const hasTypedText = typedText.trim().length > 0;
+      const hasContent = mode === 'photo' ? hasAtLeastOneImage : hasTypedText;
+
+      /* ---------- 画像 ---------- */
       const prepareImage = async (file, index) => {
-        setPreparing(prev => {
-          const newPreparing = [...prev];
-          newPreparing[index] = true;
-          return newPreparing;
-        });
+        setPreparing(prev => { const n = [...prev]; n[index] = true; return n; });
         setError('');
-
         try {
           const dataUrl = await compressToJpegDataUrl(file, 1280, 0.75);
-          setImagePreviews(prev => {
-            const newPreviews = [...prev];
-            newPreviews[index] = dataUrl;
-            return newPreviews;
-          });
-          setImages(prev => {
-            const newImages = [...prev];
-            newImages[index] = file;
-            return newImages;
-          });
+          setImagePreviews(prev => { const n = [...prev]; n[index] = dataUrl; return n; });
+          setImages(prev => { const n = [...prev]; n[index] = file; return n; });
         } catch (e) {
-          setImages(prev => {
-            const newImages = [...prev];
-            newImages[index] = null;
-            return newImages;
-          });
-          setImagePreviews(prev => {
-            const newPreviews = [...prev];
-            newPreviews[index] = null;
-            return newPreviews;
-          });
-          setError(e?.message || '画像の準備に失敗しました。別の画像で試してください。');
+          setImages(prev => { const n = [...prev]; n[index] = null; return n; });
+          setImagePreviews(prev => { const n = [...prev]; n[index] = null; return n; });
+          setError(e?.message || '画像を準備できませんでした。別の画像でお試しください。');
         } finally {
-          setPreparing(prev => {
-            const newPreparing = [...prev];
-            newPreparing[index] = false;
-            return newPreparing;
-          });
+          setPreparing(prev => { const n = [...prev]; n[index] = false; return n; });
         }
       };
 
       const handleImageUpload = async (e, index) => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
-
         if (!file.type.startsWith('image/')) {
           setError('画像ファイルを選んでください。');
           return;
         }
-
         await prepareImage(file, index);
-        e.target.value = ''; // Reset input
+        e.target.value = '';
       };
 
       const handleUploadClick = (index) => {
-        if (index === 0) {
-          fileInputRef1.current?.click();
-        } else {
-          fileInputRef2.current?.click();
-        }
+        (index === 0 ? fileInputRef1 : fileInputRef2).current?.click();
       };
 
       const handleDrop = async (e, index) => {
         e.preventDefault();
         const file = e.dataTransfer.files && e.dataTransfer.files[0];
         if (!file) return;
-
         if (!file.type.startsWith('image/')) {
           setError('画像ファイルをドロップしてください。');
           return;
         }
-
         await prepareImage(file, index);
       };
 
       const removeImage = (index) => {
-        setImages(prev => {
-          const newImages = [...prev];
-          newImages[index] = null;
-          return newImages;
-        });
-        setImagePreviews(prev => {
-          const newPreviews = [...prev];
-          newPreviews[index] = null;
-          return newPreviews;
-        });
+        setImages(prev => { const n = [...prev]; n[index] = null; return n; });
+        setImagePreviews(prev => { const n = [...prev]; n[index] = null; return n; });
       };
 
-      const hasAtLeastOneImage = imagePreviews[0] || imagePreviews[1];
-      const isAnyPreparing = preparing[0] || preparing[1];
-
+      /* ---------- AIで読み取り＋返信 ---------- */
       const processLetter = async () => {
-        if (!hasAtLeastOneImage) {
-          setError('手紙の画像を少なくとも1枚アップロードしてください');
+        if (!hasContent) {
+          setError(mode === 'photo'
+            ? '手紙の画像を少なくとも1枚アップロードしてください。'
+            : '手紙の内容を入力してください。');
           return;
         }
-        if (isAnyPreparing) {
+        if (mode === 'photo' && isAnyPreparing) {
           setError('画像を準備中です。少し待ってから実行してください。');
           return;
         }
@@ -435,64 +477,134 @@
         setError('');
 
         try {
-          // 全ての画像からテキストを抽出
-          const extractedTexts = [];
-          
-          for (let i = 0; i < 2; i++) {
-            if (imagePreviews[i]) {
-              setLoadingMessage(`手紙${i + 1}枚目を読み取っています...`);
-              
-              const base64Image = base64FromDataUrl(imagePreviews[i]);
-              if (!base64Image) {
-                throw new Error(`画像${i + 1}のデータ変換に失敗しました。`);
-              }
+          let combinedText = '';
 
-              const extractResponse = await fetch(API_URL, {
+          if (mode === 'photo') {
+            const texts = [];
+            for (let i = 0; i < 2; i++) {
+              if (!imagePreviews[i]) continue;
+              setLoadingMessage(`手紙${i + 1}枚目を読み取っています...`);
+
+              const base64Image = base64FromDataUrl(imagePreviews[i]);
+              if (!base64Image) throw new Error(`画像${i + 1}を変換できませんでした。`);
+
+              const res = await fetch(API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  action: 'extract',
-                  imageBase64: base64Image
-                })
+                body: JSON.stringify({ action: 'extract', imageBase64: base64Image })
               });
-
-              if (!extractResponse.ok) {
-                const msg = await readErrorMessage(extractResponse);
-                throw new Error(msg || `${i + 1}枚目のテキスト抽出に失敗しました`);
+              if (!res.ok) {
+                throw new Error(await readErrorMessage(res) || `${i + 1}枚目を読み取れませんでした。`);
               }
-
-              const extractData = await extractResponse.json();
-              extractedTexts.push(extractData.text);
+              const data = await res.json();
+              texts.push(data.text);
             }
+            combinedText = texts.join('\n\n');
+          } else {
+            combinedText = typedText.trim();
           }
 
-          // テキストを連結（2枚の場合は改行で繋ぐ）
-          const combinedText = extractedTexts.join('\n\n');
-          setExtractedText(combinedText);
+          setLetterText(combinedText);
 
-          // Step 2: Generate future self reply
-          setLoadingMessage('5年後の自分が返信を書いています...');
+          setLoadingMessage('1年後の自分が返信を書いています...');
+          const replyRes = await fetch(API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'reply', extractedText: combinedText })
+          });
+          if (!replyRes.ok) {
+            throw new Error(await readErrorMessage(replyRes) || '返信を生成できませんでした。');
+          }
+          const replyData = await replyRes.json();
 
-          const replyResponse = await fetch(API_URL, {
+          setFutureReply(replyData.reply);
+          setAiSkipped(false);
+          setStep('reply');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch (err) {
+          setError(err?.message || '処理中に問題が発生しました。もう一度お試しください。');
+        } finally {
+          setLoading(false);
+          setLoadingMessage('');
+        }
+      };
+
+      /* ---------- AI返信をスキップ ---------- */
+      const skipToSend = () => {
+        if (!hasContent) {
+          setError(mode === 'photo'
+            ? '手紙の画像を少なくとも1枚アップロードしてください。'
+            : '手紙の内容を入力してください。');
+          return;
+        }
+        if (mode === 'photo' && isAnyPreparing) {
+          setError('画像を準備中です。少し待ってから実行してください。');
+          return;
+        }
+        setError('');
+        setLetterText(mode === 'text' ? typedText.trim() : '');
+        setFutureReply('');
+        setAiSkipped(true);
+        setStep('send');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      };
+
+      /* ---------- 指定した日の18時に送る ---------- */
+      const defaultSendDate = shiftJstDate(jstDateString(), { years: 1 });
+      const minSendDate = shiftJstDate(jstDateString(), { days: 1 });
+      const maxSendDate = shiftJstDate(jstDateString(), { years: 2 });
+      const sendDateValid =
+        /^\d{4}-\d{2}-\d{2}$/.test(sendDate) && sendDate >= minSendDate && sendDate <= maxSendDate;
+      const canSchedule = isValidEmail(email) && sendDateValid;
+
+      const scheduleLetter = async () => {
+        if (!isValidEmail(email)) {
+          setError('メールアドレスの形式を確認してください。');
+          return;
+        }
+        if (!sendDateValid) {
+          setError('送信日は、明日から2年後までの範囲で選んでください。');
+          return;
+        }
+
+        setLoading(true);
+        setLoadingMessage('手紙を封をして預かっています...');
+        setError('');
+
+        try {
+          const capsuleData = {
+            v: 1,
+            createdAt: new Date().toISOString(),
+            images: imagePreviews.filter(Boolean),
+            letterText: letterText || '',
+            letterTextSource: letterText ? (mode === 'photo' ? 'ai-ocr' : 'typed') : null,
+            reply: futureReply || '',
+            aiSkipped
+          };
+
+          const { keyB64Url, capsule } = await encryptCapsule(capsuleData);
+
+          const res = await fetch(SCHEDULE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              action: 'reply',
-              extractedText: combinedText
+              email: email.trim(),
+              capsule,
+              key: keyB64Url,
+              sendDate
             })
           });
 
-          if (!replyResponse.ok) {
-            const msg = await readErrorMessage(replyResponse);
-            throw new Error(msg || '返信の生成に失敗しました');
+          if (!res.ok) {
+            throw new Error(await readErrorMessage(res) || '予約できませんでした。');
           }
 
-          const replyData = await replyResponse.json();
-          setFutureReply(replyData.reply);
-          setStep(2);
-
+          const data = await res.json();
+          setSentLabel(data.sendAtLabel || `${formatJaDateStr(sendDate)} 18:00`);
+          setStep('done');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (err) {
-          setError(err?.message || 'エラーが発生しました');
+          setError(err?.message || '予約できませんでした。時間をおいてお試しください。');
         } finally {
           setLoading(false);
           setLoadingMessage('');
@@ -502,12 +614,26 @@
       const resetApp = () => {
         setImages([null, null]);
         setImagePreviews([null, null]);
-        setExtractedText('');
-        setFutureReply('');
-        setStep(1);
-        setError('');
         setPreparing([false, false]);
+        setTypedText('');
+        setLetterText('');
+        setFutureReply('');
+        setAiSkipped(false);
+        setEmail('');
+        setSendDate(shiftJstDate(jstDateString(), { years: 1 }));
+        setSentLabel('');
+        setError('');
+        setStep('compose');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       };
+
+      const stepNumber = step === 'compose' ? (hasContent ? 2 : 1) : step === 'reply' ? 3 : 4;
+
+      const ErrorBox = () => error ? (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg animate-fade-in-up">
+          <p className="japanese-sans text-red-700 text-base font-medium whitespace-pre-wrap">{error}</p>
+        </div>
+      ) : null;
 
       return (
         <div className="min-h-screen bg-gradient-to-br from-amber-100 via-orange-50 to-stone-100 relative overflow-hidden">
@@ -519,123 +645,137 @@
           <div className="relative z-10 container mx-auto px-4 py-8 md:py-16">
             <header className="text-center mb-12 animate-fade-in-up">
               <h1 className="japanese-serif text-3xl md:text-4xl text-amber-900 mb-3">
-                5年後の自分からの返信
+                1年後の自分からの返信
               </h1>
               <p className="japanese-sans text-stone-600 text-xl font-medium max-w-xl mx-auto">
-                AIが手紙を読み取って、5年後の自分からの返信をお届けします
+                AIが手紙を読み取って、1年後の自分からの返信をお届けします
               </p>
             </header>
 
-            {step === 1 ? (
+            {/* ---------------- STEP 1-2: 手紙を用意する ---------------- */}
+            {step === 'compose' && (
               <div className="max-w-2xl mx-auto">
-                {/* ステップインジケーター（上に移動） */}
-                <div className="mb-8 text-center animate-fade-in-up">
-                  <div className="inline-flex items-center gap-4 md:gap-8 text-stone-600 japanese-sans text-base font-medium">
-                    <div className="flex flex-col items-center">
-                      <div className="w-10 h-10 rounded-full bg-sky-50 border-2 border-sky-200 flex items-center justify-center mb-2">
-                        <span className="text-sky-600">1</span>
-                      </div>
-                      <span>手紙を撮影</span>
+                <StepIndicator current={stepNumber} mode={mode} />
+
+                {mode === 'photo' ? (
+                  <div className="mb-6 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
+                    <label className="block japanese-sans text-stone-700 mb-2 text-base font-medium">
+                      手紙の画像をアップロード（1〜2枚）
+                    </label>
+
+                    <input ref={fileInputRef1} type="file" accept="image/*"
+                           onChange={(e) => handleImageUpload(e, 0)} className="hidden"/>
+                    <input ref={fileInputRef2} type="file" accept="image/*"
+                           onChange={(e) => handleImageUpload(e, 1)} className="hidden"/>
+
+                    <div className="flex gap-4">
+                      <ImageUploadBox
+                        index={0}
+                        imagePreview={imagePreviews[0]}
+                        preparing={preparing[0]}
+                        onUploadClick={() => handleUploadClick(0)}
+                        onDrop={(e) => handleDrop(e, 0)}
+                        onRemove={() => removeImage(0)}
+                      />
+                      <ImageUploadBox
+                        index={1}
+                        imagePreview={imagePreviews[1]}
+                        preparing={preparing[1]}
+                        onUploadClick={() => handleUploadClick(1)}
+                        onDrop={(e) => handleDrop(e, 1)}
+                        onRemove={() => removeImage(1)}
+                      />
                     </div>
-                    <div className="w-4 md:w-8 h-px bg-amber-200"/>
-                    <div className="flex flex-col items-center">
-                      <div className="w-10 h-10 rounded-full bg-sky-50 border-2 border-sky-200 flex items-center justify-center mb-2">
-                        <span className="text-sky-600">2</span>
-                      </div>
-                      <span>画像をアップロード</span>
-                    </div>
-                    <div className="w-4 md:w-8 h-px bg-amber-200"/>
-                    <div className="flex flex-col items-center">
-                      <div className="w-10 h-10 rounded-full bg-sky-50 border-2 border-sky-200 flex items-center justify-center mb-2">
-                        <span className="text-sky-600">3</span>
-                      </div>
-                      <span>返信を受け取る</span>
-                    </div>
+
+                    <p className="japanese-sans text-sm text-stone-500 mt-2 text-center font-medium">
+                      ※ 便箋2枚の場合は2枚ともアップロードしてください
+                    </p>
                   </div>
-                </div>
-
-                <div className="mb-8 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
-                  <label className="block japanese-sans text-stone-700 mb-2 text-base font-medium">
-                    手紙の画像をアップロード（1〜2枚）
-                  </label>
-                  
-                  {/* 1枚目用のファイル入力 */}
-                  <input
-                    ref={fileInputRef1}
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => handleImageUpload(e, 0)}
-                    className="hidden"
-                  />
-                  
-                  {/* 2枚目用のファイル入力 */}
-                  <input
-                    ref={fileInputRef2}
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => handleImageUpload(e, 1)}
-                    className="hidden"
-                  />
-
-                  {/* 2枚分のアップロードエリア */}
-                  <div className="flex gap-4">
-                    <ImageUploadBox
-                      index={0}
-                      imagePreview={imagePreviews[0]}
-                      preparing={preparing[0]}
-                      onUploadClick={() => handleUploadClick(0)}
-                      onDrop={(e) => handleDrop(e, 0)}
-                      onRemove={() => removeImage(0)}
+                ) : (
+                  <div className="mb-6 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
+                    <label htmlFor="letter-text" className="block japanese-sans text-stone-700 mb-2 text-base font-medium">
+                      1年後の自分への手紙を入力
+                    </label>
+                    <textarea
+                      id="letter-text"
+                      value={typedText}
+                      onChange={(e) => setTypedText(e.target.value)}
+                      rows={12}
+                      maxLength={4000}
+                      placeholder="1年後の自分へ&#10;&#10;今考えていること、悩んでいること、叶えたいことを自由に書いてください。"
+                      className="w-full p-4 rounded-xl border-2 border-amber-200 bg-white/70 japanese-sans text-base
+                                 text-stone-700 leading-relaxed resize-y
+                                 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-200"
                     />
-                    <ImageUploadBox
-                      index={1}
-                      imagePreview={imagePreviews[1]}
-                      preparing={preparing[1]}
-                      onUploadClick={() => handleUploadClick(1)}
-                      onDrop={(e) => handleDrop(e, 1)}
-                      onRemove={() => removeImage(1)}
-                    />
-                  </div>
-                  
-                  <p className="japanese-sans text-sm text-stone-500 mt-2 text-center font-medium">
-                    ※ 便箋2枚の場合は2枚ともアップロードしてください
-                  </p>
-                </div>
-
-                {error && (
-                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg animate-fade-in-up">
-                    <p className="japanese-sans text-red-700 text-base font-medium whitespace-pre-wrap">{error}</p>
+                    <p className="japanese-sans text-sm text-stone-500 mt-2 text-right font-medium">
+                      {typedText.length} / 4000文字
+                    </p>
                   </div>
                 )}
+
+                {/* 入力方法の切り替え */}
+                <div className="mb-8 text-center">
+                  <button
+                    onClick={() => { setMode(mode === 'photo' ? 'text' : 'photo'); setError(''); }}
+                    className="japanese-sans text-base font-medium text-amber-700 underline underline-offset-4
+                               decoration-amber-300 hover:text-amber-800 hover:decoration-amber-500 transition-colors"
+                  >
+                    {mode === 'photo'
+                      ? '写真でなく直接手紙を入力する場合はこちら'
+                      : '写真をアップロードして手紙を送る場合はこちら'}
+                  </button>
+                </div>
+
+                <ErrorBox />
 
                 <div className="text-center animate-fade-in-up" style={{ animationDelay: '200ms' }}>
                   {loading ? (
                     <LoadingAnimation message={loadingMessage} />
                   ) : (
-                    <button
-                      onClick={processLetter}
-                      disabled={!hasAtLeastOneImage || isAnyPreparing}
-                      className={`
-                        px-8 py-4 rounded-full japanese-serif text-xl
-                        transition-all duration-300 transform
-                        ${hasAtLeastOneImage && !isAnyPreparing
-                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg hover:shadow-xl hover:scale-105'
-                          : 'bg-stone-200 text-stone-400 cursor-not-allowed'
-                        }
-                      `}
-                    >
-                      {isAnyPreparing ? '画像を最適化中…' : '返信を受け取る'}
-                    </button>
+                    <div className="flex flex-col items-center gap-4">
+                      <button
+                        onClick={skipToSend}
+                        disabled={!hasContent || isAnyPreparing}
+                        className={`
+                          px-8 py-3 rounded-full japanese-sans text-base md:text-lg font-medium border-2
+                          transition-all duration-300
+                          ${hasContent && !isAnyPreparing
+                            ? 'border-amber-300 text-amber-700 hover:bg-amber-50'
+                            : 'border-stone-200 text-stone-400 cursor-not-allowed'}
+                        `}
+                      >
+                        AI返信をスキップして1年後への送信へ進む
+                      </button>
+
+                      <button
+                        onClick={processLetter}
+                        disabled={!hasContent || isAnyPreparing}
+                        className={`
+                          px-8 py-4 rounded-full japanese-serif text-xl
+                          transition-all duration-300 transform
+                          ${hasContent && !isAnyPreparing
+                            ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg hover:shadow-xl hover:scale-105'
+                            : 'bg-stone-200 text-stone-400 cursor-not-allowed'}
+                        `}
+                      >
+                        {isAnyPreparing ? '画像を最適化中…' : '返信を受け取る'}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
-            ) : (
+            )}
+
+            {/* ---------------- STEP 3: 返信 ---------------- */}
+            {step === 'reply' && (
               <div className="max-w-3xl mx-auto space-y-8">
+                <StepIndicator current={3} mode={mode} />
+
                 <div>
                   <h2 className="japanese-serif text-2xl text-amber-800 mb-4 text-center">
-                    📜 読み取った手紙
+                    {mode === 'photo' ? '📜 読み取った手紙' : '📜 入力した手紙'}
                   </h2>
-                  <LetterDisplay content={extractedText} isFromFuture={false} delay={0} />
+                  <LetterDisplay content={letterText} isFromFuture={false} delay={0} />
                 </div>
 
                 <div className="flex items-center justify-center py-4">
@@ -651,27 +791,194 @@
 
                 <div>
                   <h2 className="japanese-serif text-2xl text-amber-800 mb-4 text-center">
-                    ✉️ 5年後の自分からの返信
+                    ✉️ 1年後の自分からの返信
                   </h2>
                   <LetterDisplay content={futureReply} isFromFuture={true} delay={500} />
                 </div>
 
-                <div className="text-center pt-8 animate-fade-in-up" style={{ animationDelay: '1000ms' }}>
+                <div className="text-center pt-8 space-y-4 animate-fade-in-up" style={{ animationDelay: '1000ms' }}>
+                  <button
+                    onClick={() => { setError(''); setStep('send'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    className="px-8 py-4 rounded-full japanese-serif text-xl bg-gradient-to-r from-amber-500 to-orange-500
+                               text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 transform"
+                  >
+                    1年後の自分に送る
+                  </button>
+                  <div>
+                    <button
+                      onClick={resetApp}
+                      className="px-6 py-3 rounded-full japanese-sans text-lg font-medium text-amber-700
+                                 border-2 border-amber-300 hover:bg-amber-50 transition-all duration-300"
+                    >
+                      新しい手紙を用意する
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---------------- STEP 4: 1年後に送る ---------------- */}
+            {step === 'send' && (
+              <div className="max-w-2xl mx-auto">
+                <StepIndicator current={4} mode={mode} />
+
+                <div className="p-8 md:p-10 rounded-sm letter-shadow paper-texture animate-fade-in-up
+                                bg-gradient-to-br from-stone-50 via-amber-50 to-stone-100">
+                  <h2 className="japanese-serif text-2xl text-amber-800 mb-6 text-center">
+                    1年後に送る
+                  </h2>
+
+                  <p className="japanese-sans text-lg text-stone-700 mb-6 text-center leading-relaxed">
+                    1年後にも有効なメールアドレスを入力してください
+                  </p>
+
+                  <label htmlFor="email" className="sr-only">メールアドレス</label>
+                  <input
+                    id="email"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="example@mail.com"
+                    className="w-full p-4 rounded-xl border-2 border-amber-200 bg-white/80 japanese-sans text-lg
+                               text-stone-700 text-center
+                               focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-200"
+                  />
+
+                  <div className="mt-6 space-y-2">
+                    <p className="japanese-sans text-sm text-stone-600 leading-relaxed">
+                      ※このメールアドレスは、管理者には共有されません。
+                    </p>
+                    <p className="japanese-sans text-sm text-stone-600 leading-relaxed">
+                      ※手紙の内容も、管理者を含めた第三者が読むことはありません。
+                    </p>
+                  </div>
+
+                  <div className="mt-6 pt-6 border-t border-amber-200/60">
+                    <label htmlFor="send-date" className="block japanese-sans text-base text-stone-700 mb-2 text-center">
+                      送信日
+                    </label>
+                    <input
+                      id="send-date"
+                      type="date"
+                      value={sendDate}
+                      min={minSendDate}
+                      max={maxSendDate}
+                      onChange={(e) => { setSendDate(e.target.value); setError(''); }}
+                      className="w-full p-4 rounded-xl border-2 border-amber-200 bg-white/80 japanese-sans text-lg
+                                 text-stone-700 text-center
+                                 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-200"
+                    />
+
+                    <p className="japanese-sans text-sm text-stone-500 mt-3 text-center leading-relaxed">
+                      {sendDateValid
+                        ? `${formatJaDateStr(sendDate)}の18時ごろに届きます`
+                        : '明日から2年後までの日付を選んでください'}
+                    </p>
+
+                    {sendDate !== defaultSendDate && (
+                      <p className="text-center mt-2">
+                        <button
+                          onClick={() => { setSendDate(defaultSendDate); setError(''); }}
+                          className="japanese-sans text-sm font-medium text-amber-700 underline underline-offset-4
+                                     decoration-amber-300 hover:text-amber-800 transition-colors"
+                        >
+                          1年後（{formatJaDateStr(defaultSendDate)}）に戻す
+                        </button>
+                      </p>
+                    )}
+
+                    <p className="japanese-sans text-xs text-stone-400 mt-3 text-center leading-relaxed">
+                      送信時刻は18時（日本時間）です
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-8">
+                  <ErrorBox />
+                </div>
+
+                <div className="text-center animate-fade-in-up" style={{ animationDelay: '200ms' }}>
+                  {loading ? (
+                    <LoadingAnimation message={loadingMessage} />
+                  ) : (
+                    <div className="flex flex-col items-center gap-4">
+                      <button
+                        onClick={scheduleLetter}
+                        disabled={!canSchedule}
+                        className={`
+                          px-8 py-4 rounded-full japanese-serif text-xl transition-all duration-300 transform
+                          ${canSchedule
+                            ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg hover:shadow-xl hover:scale-105'
+                            : 'bg-stone-200 text-stone-400 cursor-not-allowed'}
+                        `}
+                      >
+                        この日に送る
+                      </button>
+                      <button
+                        onClick={() => { setError(''); setStep(aiSkipped ? 'compose' : 'reply'); }}
+                        className="japanese-sans text-base font-medium text-stone-500 hover:text-stone-700 transition-colors"
+                      >
+                        戻る
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ---------------- 完了 ---------------- */}
+            {step === 'done' && (
+              <div className="max-w-2xl mx-auto">
+                <div className="p-8 md:p-12 rounded-sm letter-shadow paper-texture animate-fade-in-up text-center
+                                bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50">
+                  <div className="w-20 h-20 mx-auto mb-6 opacity-70">
+                    <svg viewBox="0 0 100 80" className="w-full h-full">
+                      <rect x="5" y="15" width="90" height="60" rx="3" fill="#F5E6D3" stroke="#C4A574" strokeWidth="2"/>
+                      <path d="M5 18 L50 50 L95 18" fill="none" stroke="#C4A574" strokeWidth="2"/>
+                      <path d="M30 45 L45 60 L72 30" fill="none" stroke="#D97706" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+
+                  <h2 className="japanese-serif text-2xl text-amber-800 mb-4">
+                    手紙を預かりました
+                  </h2>
+
+                  <p className="japanese-sans text-lg text-stone-700 leading-relaxed">
+                    {sentLabel}に<br className="md:hidden"/>
+                    <span className="font-medium">{email}</span> へ<br/>
+                    今日の手紙が届きます。
+                  </p>
+
+                  <p className="japanese-sans text-sm text-stone-500 mt-6 leading-relaxed">
+                    確認のメールをいまお送りしました。届いていない場合は、迷惑メールフォルダをご確認ください。
+                  </p>
+                  <p className="japanese-sans text-sm text-stone-500 mt-2 leading-relaxed">
+                    手紙は暗号化して保管され、閲覧用の鍵は当日に届くメールの中にだけあります。
+                  </p>
+                </div>
+
+                <div className="text-center mt-8">
                   <button
                     onClick={resetApp}
                     className="px-6 py-3 rounded-full japanese-sans text-lg font-medium text-amber-700
-                             border-2 border-amber-300 hover:bg-amber-50
-                             transition-all duration-300"
+                               border-2 border-amber-300 hover:bg-amber-50 transition-all duration-300"
                   >
-                    新しい手紙を読み取る
+                    最初に戻る
                   </button>
                 </div>
               </div>
             )}
 
-            <footer className="mt-16 text-center">
-              <p className="japanese-sans text-base text-stone-500 font-medium">
-                返信が表示されるまで、20～40秒程度かかります
+            <footer className="mt-16 text-center space-y-1">
+              {step === 'compose' && (
+                <p className="japanese-sans text-base text-stone-500 font-medium">
+                  返信が表示されるまで、20～40秒程度かかります
+                </p>
+              )}
+              <p className="japanese-sans text-sm text-stone-400">
+                お問い合わせ：筑波大学人間系　千島雄太　chishima.yuta.fw@u.tsukuba.ac.jp
               </p>
             </footer>
           </div>

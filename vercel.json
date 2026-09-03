@@ -1,11 +1,28 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/view",
+      "destination": "/view.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "0 9 * * *"
+    }
   ],
   "functions": {
     "api/process-letter.js": {
       "memory": 1024,
+      "maxDuration": 120
+    },
+    "api/schedule.js": {
+      "memory": 1024,
       "maxDuration": 60
+    },
+    "api/cron.js": {
+      "memory": 1024,
+      "maxDuration": 300
     }
   }
 }

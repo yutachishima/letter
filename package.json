@@ -1,0 +1,10 @@
+{
+  "name": "letter",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "1年後の自分への手紙",
+  "dependencies": {
+    "@vercel/blob": "^2.8.0"
+  }
+}

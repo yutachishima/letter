@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>1年前のあなたからの手紙</title>
+  <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@300;400;500&family=Caveat:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in-up { animation: fadeInUp 0.8s ease-out forwards; }
+    .paper-texture {
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%' height='100%' filter='url(%23noise)'/%3E%3C/svg%3E");
+      background-blend-mode: soft-light;
+    }
+    .letter-shadow {
+      box-shadow:
+        0 1px 1px rgba(0,0,0,0.08),
+        0 2px 2px rgba(0,0,0,0.08),
+        0 4px 4px rgba(0,0,0,0.08),
+        0 8px 8px rgba(0,0,0,0.08),
+        0 16px 16px rgba(0,0,0,0.08);
+    }
+    .handwriting { font-family: 'Caveat', cursive; }
+    .japanese-serif { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 500; }
+    .japanese-sans { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 400; }
+    @media (prefers-reduced-motion: reduce) {
+      .animate-fade-in-up { animation: none; opacity: 1; transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function base64ToBytes(b64) {
+      const normalized = String(b64).replace(/-/g, '+').replace(/_/g, '/');
+      const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+      const binary = atob(padded);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    }
+
+    function readHashParams() {
+      const hash = window.location.hash.startsWith('#')
+        ? window.location.hash.slice(1)
+        : window.location.hash;
+      const params = new URLSearchParams(hash);
+      return { id: params.get('id') || '', key: params.get('k') || '' };
+    }
+
+    async function decryptCapsule(capsule, keyB64Url) {
+      const rawKey = base64ToBytes(keyB64Url);
+      const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['decrypt']);
+      const iv = base64ToBytes(capsule.iv);
+      const ct = base64ToBytes(capsule.ct);
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+      return JSON.parse(new TextDecoder().decode(plain));
+    }
+
+    function formatJaDate(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' });
+    }
+
+    const Paper = ({ children, tone = 'past', className = '' }) => (
+      <div
+        className={`relative p-8 md:p-12 rounded-sm letter-shadow paper-texture animate-fade-in-up ${
+          tone === 'future'
+            ? 'bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50'
+            : 'bg-gradient-to-br from-stone-50 via-amber-50 to-stone-100'
+        } ${className}`}
+      >
+        {children}
+      </div>
+    );
+
+    const Divider = () => (
+      <div className="flex items-center justify-center py-2">
+        <div className="flex-1 h-px bg-gradient-to-r from-transparent via-amber-300 to-transparent"/>
+        <div className="px-4">
+          <svg viewBox="0 0 40 40" className="w-8 h-8 opacity-50">
+            <circle cx="20" cy="20" r="18" fill="none" stroke="#C4A574" strokeWidth="1.5"/>
+            <path d="M12 20 L18 26 L28 14" fill="none" stroke="#C4A574" strokeWidth="1.5"/>
+          </svg>
+        </div>
+        <div className="flex-1 h-px bg-gradient-to-r from-transparent via-amber-300 to-transparent"/>
+      </div>
+    );
+
+    const App = () => {
+      const [state, setState] = useState('loading'); // loading | ready | error
+      const [message, setMessage] = useState('');
+      const [data, setData] = useState(null);
+
+      useEffect(() => {
+        (async () => {
+          const { id, key } = readHashParams();
+
+          if (!id || !key) {
+            setState('error');
+            setMessage('手紙を開くための情報がURLに含まれていません。メールに記載されたURLを、省略せずにそのまま開いてください。');
+            return;
+          }
+          if (!window.crypto || !window.crypto.subtle) {
+            setState('error');
+            setMessage('このブラウザでは手紙を開けません。別のブラウザでお試しください。');
+            return;
+          }
+
+          try {
+            const res = await fetch(`/api/letter?id=${encodeURIComponent(id)}`);
+            if (res.status === 404) {
+              setState('error');
+              setMessage('この手紙は見つかりませんでした。保管期間を過ぎている可能性があります。');
+              return;
+            }
+            if (!res.ok) {
+              throw new Error('手紙を取り出せませんでした。時間をおいてお試しください。');
+            }
+            const capsule = await res.json();
+            const decrypted = await decryptCapsule(capsule, key);
+            setData(decrypted);
+            setState('ready');
+          } catch (e) {
+            setState('error');
+            setMessage('手紙を開けませんでした。メールのURLが途中で切れていないかご確認ください。');
+          }
+        })();
+      }, []);
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-amber-100 via-orange-50 to-stone-100">
+          <div className="container mx-auto px-4 py-10 md:py-16 max-w-3xl">
+            <header className="text-center mb-10">
+              <h1 className="japanese-serif text-2xl md:text-3xl text-amber-900 mb-2">
+                1年前のあなたからの手紙
+              </h1>
+              {data?.createdAt && (
+                <p className="japanese-sans text-stone-600 text-base">
+                  {formatJaDate(data.createdAt)}に書かれました
+                </p>
+              )}
+            </header>
+
+            {state === 'loading' && (
+              <p className="japanese-sans text-center text-stone-600 text-lg py-16">
+                手紙の封を開けています…
+              </p>
+            )}
+
+            {state === 'error' && (
+              <Paper>
+                <p className="japanese-sans text-stone-700 text-base leading-relaxed whitespace-pre-wrap">
+                  {message}
+                </p>
+                <p className="japanese-sans text-sm text-stone-500 mt-6 leading-relaxed">
+                  お困りの場合はご連絡ください。<br/>
+                  筑波大学人間系　千島雄太　chishima.yuta.fw@u.tsukuba.ac.jp
+                </p>
+              </Paper>
+            )}
+
+            {state === 'ready' && data && (
+              <div className="space-y-8">
+                {Array.isArray(data.images) && data.images.length > 0 && (
+                  <section>
+                    <h2 className="japanese-serif text-xl text-amber-800 mb-4 text-center">
+                      📷 あなたが送った手紙
+                    </h2>
+                    <Paper className="space-y-6">
+                      {data.images.map((src, i) => (
+                        <img key={i} src={src} alt={`手紙の写真 ${i + 1}枚目`}
+                             className="w-full rounded-lg shadow-md"/>
+                      ))}
+                    </Paper>
+                  </section>
+                )}
+
+                {data.letterText && (
+                  <React.Fragment>
+                    {Array.isArray(data.images) && data.images.length > 0 && <Divider />}
+                    <section>
+                      <h2 className="japanese-serif text-xl text-amber-800 mb-4 text-center">
+                        {data.letterTextSource === 'typed' ? '📜 あなたが書いた手紙' : '📜 AIが読み取った手紙'}
+                      </h2>
+                      <Paper>
+                        <p className="japanese-sans text-lg text-stone-700 leading-relaxed whitespace-pre-wrap">
+                          {data.letterText}
+                        </p>
+                      </Paper>
+                    </section>
+                  </React.Fragment>
+                )}
+
+                {data.reply && (
+                  <React.Fragment>
+                    <Divider />
+                    <section>
+                      <h2 className="japanese-serif text-xl text-amber-800 mb-4 text-center">
+                        ✉️ 1年後の自分からの返信
+                      </h2>
+                      <Paper tone="future">
+                        <p className="japanese-sans text-lg text-stone-700 leading-relaxed whitespace-pre-wrap">
+                          {data.reply}
+                        </p>
+                        <p className="handwriting text-xl text-amber-700/80 text-right mt-8 pt-4 border-t border-amber-200/40">
+                          1年前に届いた返信
+                        </p>
+                      </Paper>
+                    </section>
+                  </React.Fragment>
+                )}
+
+                <footer className="text-center pt-8 space-y-2">
+                  <p className="japanese-sans text-sm text-stone-500 leading-relaxed">
+                    このページは、あなたに届いたメールのURLからのみ開くことができます。
+                  </p>
+                  <p className="japanese-sans text-sm text-stone-400 leading-relaxed">
+                    感想や不明点がありましたら、以下の連絡先までお願いします。<br/>
+                    筑波大学人間系　千島雄太　chishima.yuta.fw@u.tsukuba.ac.jp
+                  </p>
+                </footer>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
