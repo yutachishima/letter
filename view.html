@@ -37,6 +37,15 @@
   </style>
 </head>
 <body>
+  <script>
+    // ブラウザが以前のスクロール位置を復元してしまうことがあるため、
+    // 読み込み時は必ず一番上から表示する
+    if ('scrollRestoration' in history) {
+      history.scrollRestoration = 'manual';
+    }
+    window.scrollTo(0, 0);
+  </script>
+
   <div id="root"></div>
 
   <script type="text/babel">
