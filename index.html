@@ -565,7 +565,7 @@
 
       /* ---------- 指定した日に送る ---------- */
       const defaultSendDate = shiftJstDate(jstDateString(), { years: 1 });
-      const minSendDate = shiftJstDate(jstDateString(), { days: 1 });
+      const minSendDate = jstDateString();
       const maxSendDate = shiftJstDate(jstDateString(), { years: 2 });
       const sendDateValid =
         /^\d{4}-\d{2}-\d{2}$/.test(sendDate) && sendDate >= minSendDate && sendDate <= maxSendDate;
@@ -577,7 +577,7 @@
           return;
         }
         if (!sendDateValid) {
-          setError('送信日は、明日から2年後までの範囲で選んでください。');
+          setError('送信日は、今日から2年後までの範囲で選んでください。');
           return;
         }
 
@@ -888,7 +888,7 @@
                     <p className="japanese-sans text-sm text-stone-500 mt-3 text-center leading-relaxed">
                       {sendDateValid
                         ? `${formatJaDateStr(sendDate)}の18時頃に届きます`
-                        : '明日から2年後までの日付を選んでください'}
+                        : '今日から2年後までの日付を選んでください'}
                     </p>
                   </div>
                 </div>

@@ -34,7 +34,7 @@ import {
   DELIVERY_SUBJECT
 } from '../lib/store.js';
 
-// 予約できる範囲。明日から2年後まで。
+// 予約できる範囲。今日から2年後まで。
 const MAX_YEARS_AHEAD = 2;
 
 export default async function handler(req, res) {
@@ -66,7 +66,7 @@ export default async function handler(req, res) {
     }
 
     const today = jstDateString();
-    const earliest = shiftJstDate(today, { days: 1 });
+    const earliest = today;
     const latest = shiftJstDate(today, { years: MAX_YEARS_AHEAD });
     if (sendDate < earliest || sendDate > latest) {
       return res.status(400).json({ error: `送信日は ${earliest} から ${latest} までの範囲で選んでください。` });
