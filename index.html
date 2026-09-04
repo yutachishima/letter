@@ -1,9 +1,214 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" class="scroll-boot-lock">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>1年後の自分からの返信</title>
+
+  <!--
+    iPhoneのカメラ/QRコードからChromeを外部起動したとき、Chrome側が保存済みの
+    スクロール位置やフォーカスを遅れて復元することがある。
+    外部CDNやReactより先に、初期表示中だけルートスクロールを物理的に固定する。
+  -->
+  <style id="scroll-boot-critical">
+    html.scroll-boot-lock,
+    html.scroll-boot-lock body {
+      overflow: hidden !important;
+      overscroll-behavior: none !important;
+    }
+    html.scroll-boot-lock body {
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100% !important;
+    }
+  </style>
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const BOOT_FALLBACK_MS = 4000;
+      const FONT_WAIT_LIMIT_MS = 800;
+      const INITIAL_SETTLE_GUARD_MS = 1800;
+
+      let appReady = false;
+      let pageLoaded = document.readyState === 'complete';
+      let releasing = false;
+      let released = false;
+      let userInteracted = false;
+      let bootFrameId = 0;
+
+      if ('scrollRestoration' in history) {
+        history.scrollRestoration = 'manual';
+      }
+
+      const forceTop = () => {
+        try {
+          window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        } catch (_) {
+          window.scrollTo(0, 0);
+        }
+
+        const scrollingElement = document.scrollingElement;
+        if (scrollingElement) scrollingElement.scrollTop = 0;
+        root.scrollTop = 0;
+        if (document.body) document.body.scrollTop = 0;
+      };
+
+      const twoFrames = () => new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      });
+
+      // React内の画面切り替えでも使う。短いバーストで復元処理より後まで0を維持する。
+      const resetPageScroll = () => {
+        forceTop();
+        requestAnimationFrame(() => {
+          forceTop();
+          requestAnimationFrame(forceTop);
+        });
+        setTimeout(forceTop, 60);
+      };
+      window.resetLetterPageScroll = resetPageScroll;
+
+      const noteUserInteraction = () => {
+        userInteracted = true;
+      };
+
+      window.addEventListener('touchstart', noteUserInteraction, {
+        capture: true,
+        passive: true,
+        once: true
+      });
+      window.addEventListener('pointerdown', noteUserInteraction, {
+        capture: true,
+        passive: true,
+        once: true
+      });
+      window.addEventListener('wheel', noteUserInteraction, {
+        capture: true,
+        passive: true,
+        once: true
+      });
+      window.addEventListener('keydown', noteUserInteraction, {
+        capture: true,
+        once: true
+      });
+
+      // Chromeが復元したフォーカスで特定ボタンへ自動スクロールするケースも初期表示中だけ抑止。
+      const stopAutomaticFocusScroll = (event) => {
+        if (userInteracted) return;
+        const target = event.target;
+        if (target && typeof target.blur === 'function') target.blur();
+        forceTop();
+      };
+      document.addEventListener('focusin', stopAutomaticFocusScroll, true);
+
+      // 遅れて発生するスクロール復元・viewport更新を、初期ロック中は常に打ち消す。
+      const keepTopDuringBoot = () => {
+        if (!released || !userInteracted) forceTop();
+      };
+      window.addEventListener('scroll', keepTopDuringBoot, {
+        capture: true,
+        passive: true
+      });
+
+      const viewport = window.visualViewport;
+      if (viewport) {
+        viewport.addEventListener('resize', keepTopDuringBoot, { passive: true });
+        viewport.addEventListener('scroll', keepTopDuringBoot, { passive: true });
+      }
+
+      const bootLoop = () => {
+        if (released) return;
+        forceTop();
+        bootFrameId = requestAnimationFrame(bootLoop);
+      };
+
+      const waitForFonts = async () => {
+        if (!document.fonts || !document.fonts.ready) return;
+        await Promise.race([
+          document.fonts.ready.catch(() => undefined),
+          new Promise(resolve => setTimeout(resolve, FONT_WAIT_LIMIT_MS))
+        ]);
+      };
+
+      const cleanupBootListeners = () => {
+        cancelAnimationFrame(bootFrameId);
+        document.removeEventListener('focusin', stopAutomaticFocusScroll, true);
+        window.removeEventListener('scroll', keepTopDuringBoot, true);
+        if (viewport) {
+          viewport.removeEventListener('resize', keepTopDuringBoot);
+          viewport.removeEventListener('scroll', keepTopDuringBoot);
+        }
+      };
+
+      const releaseBootLock = async (force = false) => {
+        if (released || releasing) return;
+        if (!force && (!appReady || !pageLoaded)) return;
+        releasing = true;
+
+        await waitForFonts();
+        await twoFrames();
+        forceTop();
+
+        // 先頭を確定してから固定を解除する。
+        root.classList.remove('scroll-boot-lock');
+        await twoFrames();
+        forceTop();
+
+        released = true;
+        cancelAnimationFrame(bootFrameId);
+        setTimeout(cleanupBootListeners, INITIAL_SETTLE_GUARD_MS);
+
+        // iOS Chromeの遅いviewport/フォーカス復元に備えた最後の補正。
+        // ユーザーが操作を始めた後は絶対に巻き戻さない。
+        const correctUnlessInteracted = () => {
+          if (!userInteracted) forceTop();
+        };
+        requestAnimationFrame(() => {
+          correctUnlessInteracted();
+          requestAnimationFrame(correctUnlessInteracted);
+        });
+        [0, 100, 350, 800, 1500].forEach(delay => {
+          setTimeout(correctUnlessInteracted, delay);
+        });
+      };
+
+      window.markLetterAppReady = () => {
+        appReady = true;
+        releaseBootLock();
+      };
+
+      document.addEventListener('DOMContentLoaded', forceTop, { once: true });
+
+      if (!pageLoaded) {
+        window.addEventListener('load', () => {
+          pageLoaded = true;
+          forceTop();
+          releaseBootLock();
+        }, { once: true });
+      }
+
+      // bfcacheから戻った場合も、復元スクロールより後に先頭へ戻す。
+      window.addEventListener('pageshow', (event) => {
+        if (!released) {
+          forceTop();
+        } else if (event.persisted) {
+          resetPageScroll();
+        }
+      });
+
+      // CDN障害などでReactが起動しない場合でも固定を残し続けない。
+      setTimeout(() => {
+        if (!released) {
+          appReady = true;
+          pageLoaded = true;
+          releaseBootLock(true);
+        }
+      }, BOOT_FALLBACK_MS);
+
+      forceTop();
+      bootLoop();
+    })();
+  </script>
   <link href="https://fonts.googleapis.com/css2?family=Kaisei+Decol&family=Zen+Kaku+Gothic+New:wght@300;400;500&family=Caveat:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -45,65 +250,39 @@
     .japanese-serif { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 500; }
     .japanese-sans { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 400; }
 
-    /* iOS Safari / iOS Chrome でも上下のブラウザUIに内容が隠れないようにする */
+    /* iOS系ブラウザのルートスクロールを一意にし、アンカー補正を無効化する */
     html {
+      min-height: 100%;
       background: #fef3c7;
       scroll-behavior: auto;
-      /* 横方向のはみ出しはここで止める（縦のスクロールコンテナは1つだけにする） */
-      overflow-x: hidden;
-      overflow-y: auto;
+    }
+    html, body, #root, .app-shell {
+      overflow-anchor: none;
     }
     body {
       margin: 0;
-      overflow-anchor: none;
+      min-height: 100%;
+      /* hiddenの後にclipを置き、対応ブラウザでは縦方向のscroll container化を避ける */
+      overflow-x: hidden;
+      overflow-x: clip;
     }
-
-    /* ページ最上端を測るための目印。高さ0なのでレイアウトに影響しない */
-    #top-anchor {
-      position: relative;
-      height: 0;
-      margin: 0;
-      padding: 0;
-    }
-
+    #root { min-height: 100%; }
     .app-shell {
-      /* 100dvh はツールバーの伸縮で高さが変わりガタつくため svh を使う */
       min-height: 100vh;
-      min-height: 100svh;
-      position: relative;
-      /* ここに overflow を書くと app-shell 自体が縦スクロールコンテナになるので書かない */
+      min-height: 100dvh;
+      overflow-x: hidden;
+      overflow-x: clip;
     }
-
-    /* 装飾の光の玉をここで完全にクリップする（app-shell に overflow を付けない代わり） */
-    .decor-layer {
-      position: fixed;
-      inset: 0;
-      overflow: hidden;
-      pointer-events: none;
-      z-index: 0;
-    }
-
     .app-content {
       padding-top: calc(2rem + env(safe-area-inset-top, 0px));
-      /* Chrome/Safari の下部ツールバー分を含め、フッターまで確実にスクロールできるようにする */
-      padding-bottom: 10rem;
-      padding-bottom: max(10rem, calc(8rem + env(safe-area-inset-bottom, 0px)));
+      /* Safari下部ツールバー分の余白も含め、フッターまで確実にスクロールできるようにする */
+      padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
     }
     @media (min-width: 768px) {
       .app-content {
         padding-top: 4rem;
-        padding-bottom: 5rem;
+        padding-bottom: 4rem;
       }
-    }
-
-    /* React描画前に出しておく仮のタイトル（初回ペイントで文書の高さを確定させる） */
-    #boot-placeholder {
-      text-align: center;
-      color: #78350f;
-      font-family: 'Zen Kaku Gothic New', sans-serif;
-      font-weight: 500;
-      font-size: 1.875rem;
-      line-height: 2.25rem;
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -113,96 +292,10 @@
   </style>
 </head>
 <body>
-  <!-- ページ最上端の目印（scrollY の絶対値ではなく、実際の描画位置を測るために使う） -->
-  <div id="top-anchor" aria-hidden="true"></div>
-
-  <div id="root">
-    <!-- React描画前の仮表示。空の #root だと初回ペイント時の文書高さが0になり、
-         iOS Chrome がスクロール位置を誤って確定させる原因になるため置いている -->
-    <div style="padding-top:2rem;padding-left:1rem;padding-right:1rem;">
-      <div id="boot-placeholder">1年後の自分からの返信</div>
-    </div>
-  </div>
-
-  <script>
-    (function () {
-      // 履歴によるスクロール位置の復元を止める
-      if ('scrollRestoration' in history) {
-        history.scrollRestoration = 'manual';
-      }
-
-      var userMoved = false;
-      function markUserMoved() { userMoved = true; }
-      ['touchstart', 'touchmove', 'wheel', 'pointerdown', 'keydown'].forEach(function (type) {
-        window.addEventListener(type, markUserMoved, { passive: true });
-      });
-
-      /*
-        重要:
-          window.scrollTo(0, 0) は「スクロールコンテナの原点」に合わせる命令であって
-          「画面の一番上」に合わせる命令ではない。
-          iOS Chrome はアドレスバーぶんの contentInset をページ読み込みの途中で当てるため、
-          その最中に scrollTo(0,0) を呼ぶと、原点はツールバーの高さぶん下にズレたまま固定される。
-          （Safari は inset を初回ペイント前に確定させるので、同じコードでもズレない）
-
-          そこで、絶対座標を使わず #top-anchor の実際の画面上の位置を測り、
-          相対スクロール(scrollBy)でズレぶんだけ戻す。これなら inset のズレに影響されない。
-      */
-      function alignToTop(force) {
-        if (userMoved && !force) return;
-        var anchor = document.getElementById('top-anchor');
-        if (!anchor) return;
-        var top = anchor.getBoundingClientRect().top;
-        if (Math.abs(top) > 1) {
-          window.scrollBy(0, top);
-        }
-      }
-
-      var timer = null;
-      function alignForAWhile(duration) {
-        var deadline = Date.now() + (duration || 1200);
-        requestAnimationFrame(function () {
-          alignToTop(false);
-          requestAnimationFrame(function () { alignToTop(false); });
-        });
-        if (timer) clearInterval(timer);
-        timer = setInterval(function () {
-          alignToTop(false);
-          if (userMoved || Date.now() > deadline) {
-            clearInterval(timer);
-            timer = null;
-          }
-        }, 120);
-      }
-
-      // React側（ステップ切替時）から呼ぶ用。こちらはユーザー操作後でも強制的に先頭へ。
-      function forceAlignToTop() {
-        userMoved = false;
-        requestAnimationFrame(function () {
-          alignToTop(true);
-          requestAnimationFrame(function () { alignToTop(true); });
-        });
-      }
-      window.letterAlignToTop = forceAlignToTop;
-      window.resetLetterPageScroll = forceAlignToTop; // 旧名の互換
-
-      document.addEventListener('DOMContentLoaded', function () { alignForAWhile(1600); }, { once: true });
-      window.addEventListener('load', function () { alignForAWhile(1200); }, { once: true });
-
-      // Webフォント適用による行送りの変化で位置がズレるのも吸収する
-      if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
-        document.fonts.ready.then(function () { alignToTop(false); });
-      }
-
-      // bfcache から戻ったときだけ先頭に戻す（毎回の pageshow で暴れないように）
-      window.addEventListener('pageshow', function (e) {
-        if (e.persisted) forceAlignToTop();
-      });
-    })();
-  </script>
+  <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useRef, useEffect } = React;
+    const { useState, useRef, useEffect, useLayoutEffect } = React;
 
     /* ============================================================
        画像の圧縮（スマホ写真をJPEGに変換＆縮小）
@@ -368,7 +461,7 @@
       }));
 
       return (
-        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="fixed inset-0 pointer-events-none overflow-hidden">
           {particles.map(p => (
             <div
               key={p.id}
@@ -566,6 +659,11 @@
 
       const fileInputRef1 = useRef(null);
       const fileInputRef2 = useRef(null);
+
+      // 初回DOMコミットをhead側のスクロール制御へ通知する（paint前に実行）。
+      useLayoutEffect(() => {
+        window.markLetterAppReady?.();
+      }, []);
 
       const API_BASE = (window.API_BASE ? String(window.API_BASE).replace(/\/$/, '') : '');
       const API_URL = API_BASE + '/api/process-letter';
@@ -789,10 +887,10 @@
 
       const stepNumber = step === 'compose' ? 1 : step === 'reply' ? 2 : 3;
 
-      // 画面（step）が切り替わるたびに、描画後のページ先頭へ戻す
-      useEffect(() => {
-        const align = window.letterAlignToTop || (() => window.scrollTo(0, 0));
-        align();
+      // 画面（step）が切り替わる際も、paint前にページ先頭を確定する。
+      useLayoutEffect(() => {
+        const resetPageScroll = window.resetLetterPageScroll || (() => window.scrollTo(0, 0));
+        resetPageScroll();
       }, [step]);
 
       const ErrorBox = () => error ? (
@@ -802,18 +900,14 @@
       ) : null;
 
       return (
-        <div className="app-shell bg-gradient-to-br from-amber-100 via-orange-50 to-stone-100">
-          {/* 装飾はすべて fixed のクリップ層の中へ。
-              app-shell に overflow-x-hidden を付けると、CSS仕様上 overflow-y が auto に化けて
-              app-shell 自体が「2つ目の縦スクロールコンテナ」になってしまうため外した。 */}
-          <div className="decor-layer">
-            <FloatingParticles />
-            <div className="absolute top-0 right-0 w-96 h-96 bg-amber-200/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"/>
-            <div className="absolute bottom-0 left-0 w-80 h-80 bg-orange-200/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"/>
-          </div>
+        <div className="app-shell bg-gradient-to-br from-amber-100 via-orange-50 to-stone-100 relative">
+          <FloatingParticles />
+
+          <div className="absolute top-0 right-0 w-96 h-96 bg-amber-200/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"/>
+          <div className="absolute bottom-0 left-0 w-80 h-80 bg-orange-200/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"/>
 
           <div className="app-content relative z-10 container mx-auto px-4">
-            <header className="text-center mb-12 animate-fade-in-up">
+            <header className="text-center mb-12">
               <h1 className="japanese-serif text-3xl md:text-4xl text-amber-900 mb-3">
                 1年後の自分からの返信
               </h1>
