@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>1年後の自分からの返信</title>
   <link href="https://fonts.googleapis.com/css2?family=Kaisei+Decol&family=Zen+Kaku+Gothic+New:wght@300;400;500&family=Caveat:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -45,33 +45,65 @@
     .japanese-serif { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 500; }
     .japanese-sans { font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 400; }
 
-    /* iOS Safariでも上下のブラウザUIに内容が隠れないようにする */
+    /* iOS Safari / iOS Chrome でも上下のブラウザUIに内容が隠れないようにする */
     html {
-      min-height: 100%;
       background: #fef3c7;
       scroll-behavior: auto;
+      /* 横方向のはみ出しはここで止める（縦のスクロールコンテナは1つだけにする） */
+      overflow-x: hidden;
+      overflow-y: auto;
     }
     body {
       margin: 0;
-      min-height: 100%;
-      overflow-x: hidden;
       overflow-anchor: none;
     }
-    #root { min-height: 100%; }
-    .app-shell {
-      min-height: 100vh;
-      min-height: 100dvh;
+
+    /* ページ最上端を測るための目印。高さ0なのでレイアウトに影響しない */
+    #top-anchor {
+      position: relative;
+      height: 0;
+      margin: 0;
+      padding: 0;
     }
+
+    .app-shell {
+      /* 100dvh はツールバーの伸縮で高さが変わりガタつくため svh を使う */
+      min-height: 100vh;
+      min-height: 100svh;
+      position: relative;
+      /* ここに overflow を書くと app-shell 自体が縦スクロールコンテナになるので書かない */
+    }
+
+    /* 装飾の光の玉をここで完全にクリップする（app-shell に overflow を付けない代わり） */
+    .decor-layer {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 0;
+    }
+
     .app-content {
       padding-top: calc(2rem + env(safe-area-inset-top, 0px));
-      /* Safari下部ツールバー分の余白も含め、フッターまで確実にスクロールできるようにする */
-      padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
+      /* Chrome/Safari の下部ツールバー分を含め、フッターまで確実にスクロールできるようにする */
+      padding-bottom: 10rem;
+      padding-bottom: max(10rem, calc(8rem + env(safe-area-inset-bottom, 0px)));
     }
     @media (min-width: 768px) {
       .app-content {
         padding-top: 4rem;
-        padding-bottom: 4rem;
+        padding-bottom: 5rem;
       }
+    }
+
+    /* React描画前に出しておく仮のタイトル（初回ペイントで文書の高さを確定させる） */
+    #boot-placeholder {
+      text-align: center;
+      color: #78350f;
+      font-family: 'Zen Kaku Gothic New', sans-serif;
+      font-weight: 500;
+      font-size: 1.875rem;
+      line-height: 2.25rem;
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -81,38 +113,93 @@
   </style>
 </head>
 <body>
+  <!-- ページ最上端の目印（scrollY の絶対値ではなく、実際の描画位置を測るために使う） -->
+  <div id="top-anchor" aria-hidden="true"></div>
+
+  <div id="root">
+    <!-- React描画前の仮表示。空の #root だと初回ペイント時の文書高さが0になり、
+         iOS Chrome がスクロール位置を誤って確定させる原因になるため置いている -->
+    <div style="padding-top:2rem;padding-left:1rem;padding-right:1rem;">
+      <div id="boot-placeholder">1年後の自分からの返信</div>
+    </div>
+  </div>
+
   <script>
-    (() => {
-      // QRコードや履歴からアクセスした際に、iOS Safariが以前のスクロール位置を
-      // React描画後に復元することがあるため、描画タイミングをまたいで先頭へ戻す
+    (function () {
+      // 履歴によるスクロール位置の復元を止める
       if ('scrollRestoration' in history) {
         history.scrollRestoration = 'manual';
       }
 
-      const scrollToTop = () => {
-        window.scrollTo(0, 0);
-        document.documentElement.scrollTop = 0;
-        document.body.scrollTop = 0;
-      };
+      var userMoved = false;
+      function markUserMoved() { userMoved = true; }
+      ['touchstart', 'touchmove', 'wheel', 'pointerdown', 'keydown'].forEach(function (type) {
+        window.addEventListener(type, markUserMoved, { passive: true });
+      });
 
-      const resetPageScroll = () => {
-        scrollToTop();
-        requestAnimationFrame(() => {
-          scrollToTop();
-          requestAnimationFrame(scrollToTop);
+      /*
+        重要:
+          window.scrollTo(0, 0) は「スクロールコンテナの原点」に合わせる命令であって
+          「画面の一番上」に合わせる命令ではない。
+          iOS Chrome はアドレスバーぶんの contentInset をページ読み込みの途中で当てるため、
+          その最中に scrollTo(0,0) を呼ぶと、原点はツールバーの高さぶん下にズレたまま固定される。
+          （Safari は inset を初回ペイント前に確定させるので、同じコードでもズレない）
+
+          そこで、絶対座標を使わず #top-anchor の実際の画面上の位置を測り、
+          相対スクロール(scrollBy)でズレぶんだけ戻す。これなら inset のズレに影響されない。
+      */
+      function alignToTop(force) {
+        if (userMoved && !force) return;
+        var anchor = document.getElementById('top-anchor');
+        if (!anchor) return;
+        var top = anchor.getBoundingClientRect().top;
+        if (Math.abs(top) > 1) {
+          window.scrollBy(0, top);
+        }
+      }
+
+      var timer = null;
+      function alignForAWhile(duration) {
+        var deadline = Date.now() + (duration || 1200);
+        requestAnimationFrame(function () {
+          alignToTop(false);
+          requestAnimationFrame(function () { alignToTop(false); });
         });
-      };
+        if (timer) clearInterval(timer);
+        timer = setInterval(function () {
+          alignToTop(false);
+          if (userMoved || Date.now() > deadline) {
+            clearInterval(timer);
+            timer = null;
+          }
+        }, 120);
+      }
 
-      window.resetLetterPageScroll = resetPageScroll;
-      resetPageScroll();
+      // React側（ステップ切替時）から呼ぶ用。こちらはユーザー操作後でも強制的に先頭へ。
+      function forceAlignToTop() {
+        userMoved = false;
+        requestAnimationFrame(function () {
+          alignToTop(true);
+          requestAnimationFrame(function () { alignToTop(true); });
+        });
+      }
+      window.letterAlignToTop = forceAlignToTop;
+      window.resetLetterPageScroll = forceAlignToTop; // 旧名の互換
 
-      document.addEventListener('DOMContentLoaded', resetPageScroll, { once: true });
-      window.addEventListener('load', resetPageScroll, { once: true });
-      window.addEventListener('pageshow', resetPageScroll);
+      document.addEventListener('DOMContentLoaded', function () { alignForAWhile(1600); }, { once: true });
+      window.addEventListener('load', function () { alignForAWhile(1200); }, { once: true });
+
+      // Webフォント適用による行送りの変化で位置がズレるのも吸収する
+      if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+        document.fonts.ready.then(function () { alignToTop(false); });
+      }
+
+      // bfcache から戻ったときだけ先頭に戻す（毎回の pageshow で暴れないように）
+      window.addEventListener('pageshow', function (e) {
+        if (e.persisted) forceAlignToTop();
+      });
     })();
   </script>
-
-  <div id="root"></div>
 
   <script type="text/babel">
     const { useState, useRef, useEffect } = React;
@@ -281,7 +368,7 @@
       }));
 
       return (
-        <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
           {particles.map(p => (
             <div
               key={p.id}
@@ -702,10 +789,10 @@
 
       const stepNumber = step === 'compose' ? 1 : step === 'reply' ? 2 : 3;
 
-      // 画面（step）が切り替わるたびに、描画後のページ先頭へ即座に戻す
+      // 画面（step）が切り替わるたびに、描画後のページ先頭へ戻す
       useEffect(() => {
-        const resetPageScroll = window.resetLetterPageScroll || (() => window.scrollTo(0, 0));
-        resetPageScroll();
+        const align = window.letterAlignToTop || (() => window.scrollTo(0, 0));
+        align();
       }, [step]);
 
       const ErrorBox = () => error ? (
@@ -715,11 +802,15 @@
       ) : null;
 
       return (
-        <div className="app-shell bg-gradient-to-br from-amber-100 via-orange-50 to-stone-100 relative overflow-x-hidden">
-          <FloatingParticles />
-
-          <div className="absolute top-0 right-0 w-96 h-96 bg-amber-200/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"/>
-          <div className="absolute bottom-0 left-0 w-80 h-80 bg-orange-200/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"/>
+        <div className="app-shell bg-gradient-to-br from-amber-100 via-orange-50 to-stone-100">
+          {/* 装飾はすべて fixed のクリップ層の中へ。
+              app-shell に overflow-x-hidden を付けると、CSS仕様上 overflow-y が auto に化けて
+              app-shell 自体が「2つ目の縦スクロールコンテナ」になってしまうため外した。 */}
+          <div className="decor-layer">
+            <FloatingParticles />
+            <div className="absolute top-0 right-0 w-96 h-96 bg-amber-200/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"/>
+            <div className="absolute bottom-0 left-0 w-80 h-80 bg-orange-200/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"/>
+          </div>
 
           <div className="app-content relative z-10 container mx-auto px-4">
             <header className="text-center mb-12 animate-fade-in-up">
