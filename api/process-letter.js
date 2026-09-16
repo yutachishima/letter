@@ -123,7 +123,7 @@ async function callOpenAI(apiKey, body) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({ ...body, store: false })
   });
 
   const raw = await response.text();
